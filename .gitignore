@@ -1,2 +1,10 @@
+*
+!enable_upgrades.sp
+!rock_the_upgrades.sp
+!rock_the_upgrades.phrases.txt
+!LICENSE
+!README.md
+!*/
+
 *.code-workspace
 spcomp64.exe
