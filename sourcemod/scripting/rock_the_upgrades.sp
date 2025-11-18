@@ -65,6 +65,7 @@ public Plugin myinfo = {
 ConVar g_Cvar_Needed;
 ConVar g_Cvar_MinPlayers;
 ConVar g_Cvar_InitialDelay;
+// TODO: add a timer for re-voting after a failed vote
 ConVar g_Cvar_Interval;
 
 bool g_RTUAllowed = false;	    // True if RTU is available to players. Used to delay rtu votes.
@@ -89,10 +90,8 @@ public void OnPluginStart() {
 	OnMapEnd();
 
 	/* Handle late load */
-	for (int i=1; i<=MaxClients; i++)
-	{
-		if (IsClientConnected(i))
-		{
+	for (int i=1; i<=MaxClients; i++) {
+		if (IsClientConnected(i)) {
 			OnClientConnected(i);
 		}
 	}
@@ -103,7 +102,6 @@ public void OnMapEnd() {
 	g_Voters = 0;
 	g_Votes = 0;
 	g_VotesNeeded = 0;
-	// g_InChange = false;
 }
 
 public void OnConfigsExecuted() {
@@ -111,59 +109,43 @@ public void OnConfigsExecuted() {
 	CreateTimer(g_Cvar_InitialDelay.FloatValue, Timer_DelayRTU, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
+// Raise the threshold of required votes
 public void OnClientConnected(int client) {
-	if (!IsFakeClient(client))
-	{
+	if (!IsFakeClient(client)) {
 		g_Voters++;
 		g_VotesNeeded = RoundToCeil(float(g_Voters) * g_Cvar_Needed.FloatValue);
 	}
 }
 
+// Lower the threshold of required votes. Activate RTU if exceeded
+// Clear the clients vote if present
+// Check votes against new threshold and activate RTU if exceeded
 public void OnClientDisconnect(int client) {
-	if (g_Voted[client])
-	{
+	if (g_Voted[client]) {
 		g_Votes--;
 		g_Voted[client] = false;
 	}
 
-	if (!IsFakeClient(client))
-	{
+	if (!IsFakeClient(client)) {
 		g_Voters--;
 		g_VotesNeeded = RoundToCeil(float(g_Voters) * g_Cvar_Needed.FloatValue);
 	}
-
+	// TODO: simplify
 	if (g_Votes &&
 		g_Voters &&
 		g_Votes >= g_VotesNeeded &&
-		g_RTUAllowed )
-	{
+		g_RTUAllowed ) {
 		ActivateRTU();
 	}
 }
 
-// TODO: Remove this if not needed
-public void OnClientSayCommand_Post(int client, const char[] command, const char[] sArgs)
-{
-	if (!client || IsChatTrigger())
-	{
-		return;
-	}
-
-	if (strcmp(sArgs, "rtu", false) == 0 || strcmp(sArgs, "rocktheupgrade", false) == 0)
-	{
-		//ReplySource old = SetCmdReplySource(SM_REPLY_TO_CHAT);
-
-		//AttemptRTU(client);
-
-		//SetCmdReplySource(old);
-	}
-}
-
+// Triggered when a client chats "/rtu" or "!rtu"
 public Action Command_RTU(int client, int args) {
 	if (client) { AttemptRTU(client); }
 	return Plugin_Handled;
 }
 
+// Activate RTU, or reply to player with a failure message
 void AttemptRTU(int client) {
 	if (!g_RTUAllowed) {
 		ReplyToCommand(client, "[SM] %t", "RTU Not Allowed");
