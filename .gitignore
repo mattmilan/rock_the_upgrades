@@ -1,6 +1,7 @@
 *
 !enable_upgrades.inc
-!rock_the_upgrades.s*
+!rock_the_upgrades.*
+*.code-workspace
 !LICENSE
 !README.md
 !*/

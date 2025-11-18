@@ -1,0 +1,75 @@
+"Phrases"
+{
+	"Rock The Upgrade"
+	{
+		"en"			"Rock The Upgrades:"
+	}
+
+	"RTU Not Allowed"
+	{
+		"en"			"Enabling upgrades is not allowed yet."
+	}
+
+	"RTU Started"
+	{
+		"en"			"Enabling upgrades has already started."
+	}
+
+	"RTU Ended"
+	{
+		"en"			"Enabling upgrades has already ended, you cannot start it again."
+
+	}
+
+	"Already Voted"
+	{
+ 		"#format"		"{1:d},{2:d}"
+	 	"en"			"You have already voted to enable upgrades. ({1} votes, {2} required)"
+	}
+
+	"Minimal Players Not Met"
+	{
+		"en"			"The minimal number of players required has not been met."
+	}
+
+
+	"RTU Requested"
+	{
+		"#format"		"{1:s},{2:d},{3:d}"
+		"en"			"{1} wants to enable upgrades. ({2} votes, {3} required)"
+	}
+
+	"RTU Upgrade Ready"
+	{
+		"en"			"Enabling upgrades!"
+
+	}
+
+	"Don't Change"
+	{
+		"en"			"Keep upgrades disabled"
+	}
+
+
+	"Selected Map"
+	{
+		"#format"		"{1:s},{2:s}"
+		"en"			"{1} has selected {2}"
+	}
+
+	"No Upgrades"
+	{
+		"en"			"No votes received, upgrades remain disabled."
+	}
+
+	"Current Map Stays"
+	{
+		"en"			"Upgrades remain disabled!"
+	}
+
+	"Changing Maps"
+	{
+		"#format"		"{1:s}"
+		"en"			"Enabling upgrades!"
+	}
+}
