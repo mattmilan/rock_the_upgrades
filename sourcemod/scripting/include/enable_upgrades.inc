@@ -1,63 +1,56 @@
+// Primary method, called by plugin
 public void ActivateRTU() {
-    PrintToConsoleAll("\n\nRock the BUpgrade!\n\n");
+	PrintToChatAll("\n\nUpgrades Enabled!\n\n");
 	GameRules_SetProp("m_nForceUpgrades", 2, 4);
-
-    int resupplyEntity = -1; // Start with -1 to iterate through all entities
-    while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "func_regenerate")) != -1) {
-		SpawnUpgradeStationAt(resupplyEntity);
-    }
+	SpawnUpgradeStations();
 }
 
-public void SpawnUpgradeStationAt(int entity) {
-	float mins[3]; GetEntPropVector(entity, Prop_Data, "m_vecMins", mins);
-	float maxs[3]; GetEntPropVector(entity, Prop_Data, "m_vecMaxs", maxs);
+void SpawnUpgradeStations() {
+	int resupplyEntity = -1;
+	while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "func_regenerate")) != -1) {
+		SpawnUpgradeStationAt(resupplyEntity);
+	}
+}
+
+void SpawnUpgradeStationAt(int entity) {
+	// TODO: simplify; get the entity center directly
+	float   mins[3]; GetEntPropVector(entity, Prop_Data, "m_vecMins", mins);
+	float   maxs[3]; GetEntPropVector(entity, Prop_Data, "m_vecMaxs", maxs);
 	float center[3]; GetCenter(mins, maxs, center);
 
 	BuildUpgradeStation(center);
 }
 
-
-public void BuildUpgradeStation(float center[3]) {
+void BuildUpgradeStation(float center[3]) {
 	int funcUpgrade = CreateEntityByName("func_upgradestation");
 
 	DispatchKeyValueVector(funcUpgrade, "origin", center);
 
-	if (!DispatchSpawn(funcUpgrade)) { PrintToServer("DispatchSpawn Failed!"); }	// Spawn the entity into the world
-	else { PrintToServer("Spawned Upgrade Station at (%.2f, %.2f, %.2f)", center[0], center[1], center[2]); }
+	if (!DispatchSpawn(funcUpgrade)) { return; }
 
 	ActivateEntity(funcUpgrade);
 	TeleportEntity(funcUpgrade, center, NULL_VECTOR, NULL_VECTOR);
-	SetEntityModel(funcUpgrade, "models/props_gameplay/resupply_locker.mdl");
-
-	// might not be needed
-	new enteffects = GetEntProp(funcUpgrade, Prop_Send, "m_fEffects");
-	enteffects |= 32;
-	SetEntProp(funcUpgrade, Prop_Send, "m_fEffects", enteffects);
-
-	// Set the entity's bounding box
-	float mins[] = {-64.0, -64.0, -32.0 };
-	float maxs[] = { 64.0, 64.0, 32.0 };
-	// TODO: we don't really need both Send and Data - resolve
-	SetEntPropVector(funcUpgrade, Prop_Send, "m_vecMins", mins);
-	SetEntPropVector(funcUpgrade, Prop_Send, "m_vecMaxs", maxs);
-	SetEntPropVector(funcUpgrade, Prop_Data, "m_vecMins", mins);
-	SetEntPropVector(funcUpgrade, Prop_Data, "m_vecMaxs", maxs);
-	SetEntProp(funcUpgrade, Prop_Send, "m_nSolidType", 2);
-	SetEntProp(funcUpgrade, Prop_Send, "m_usSolidFlags", 12);
-	SetEntProp(funcUpgrade, Prop_Data, "m_nSolidType", 2);
-	SetEntProp(funcUpgrade, Prop_Data, "m_usSolidFlags", 12);
+	AssignPropertiesTo(funcUpgrade);
 }
 
-// public Action Hook_OnTouch(int call, int client) {
-// 	PrintToServer("touched");
-// }
+// Make the upgrade station collidable, which opens/closes the upgrades menu
+void AssignPropertiesTo(int funcUpgrade) {
+	// NOTE: collision detection requires assignment of an arbitrary, pre-cached model
+	// TODO: Not all maps precache this model - need a solution on that
+	SetEntityModel(funcUpgrade, "models/props_gameplay/resupply_locker.mdl");
 
-public void GetCenter(float mins[3], float maxs[3], float center[3]) {
+	// make collidable with players
+	SetEntProp(funcUpgrade, Prop_Data, "m_nSolidType", 2);
+	SetEntProp(funcUpgrade, Prop_Data, "m_usSolidFlags", 12);
+
+	// TODO: fine tune; just needs to be a little bigger than the resupply locker model
+	SetEntPropVector(funcUpgrade, Prop_Data, "m_vecMins", {-64.0, -64.0, -32.0 });
+	SetEntPropVector(funcUpgrade, Prop_Data, "m_vecMaxs", { 64.0, 64.0, 32.0 });
+}
+
+// TODO: does such a method already exist? then use it
+void GetCenter(float mins[3], float maxs[3], float center[3]) {
 	SubtractVectors(maxs, mins, center);
 	ScaleVector(center, 0.5);
 	AddVectors(mins, center, center);
-}
-
-public void PrintVector(char[] prefix, float[] vector) {
-	PrintToServer("%s(%.2f,%.2f,%.2f)", prefix, vector[0], vector[1], vector[2]);
 }

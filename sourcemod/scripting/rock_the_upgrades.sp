@@ -48,18 +48,15 @@
 
 #include <sourcemod>
 #include <sdktools>
-// #include <mapchooser>
-// #include <nextmap>
 #include <sdkhooks>
 #include <enable_upgrades>
 
 #pragma semicolon 1
 #pragma newdecls required
 
-public Plugin myinfo =
-{
+public Plugin myinfo = {
 	name = "Rock The Upgrades",
-	author = "Matt Milan (MurderousIntent)",
+	author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
 	version = SOURCEMOD_VERSION,
 	url = "https://github.com/mattmilan/rock_the_upgrades"
@@ -69,8 +66,6 @@ ConVar g_Cvar_Needed;
 ConVar g_Cvar_MinPlayers;
 ConVar g_Cvar_InitialDelay;
 ConVar g_Cvar_Interval;
-// ConVar g_Cvar_ChangeTime;
-// ConVar g_Cvar_RTUPostVoteAction;
 
 bool g_RTUAllowed = false;	    // True if RTU is available to players. Used to delay rtu votes.
 int g_Voters = 0;				// Total voters connected. Doesn't include fake clients.
@@ -78,10 +73,7 @@ int g_Votes = 0;				// Total number of votes
 int g_VotesNeeded = 0;			// Necessary votes before upgrades are activated. (voters * percent_needed)
 bool g_Voted[MAXPLAYERS+1] = {false, ...};
 
-// bool g_InChange = false;
-
-public void OnPluginStart()
-{
+public void OnPluginStart() {
 	LoadTranslations("common.phrases");
 	LoadTranslations("rock_the_upgrades.phrases");
 
@@ -89,8 +81,6 @@ public void OnPluginStart()
 	g_Cvar_MinPlayers = CreateConVar("sm_rtu_minplayers", "0", "Number of players required before RTU will be enabled.", 0, true, 0.0, true, float(MAXPLAYERS));
 	g_Cvar_InitialDelay = CreateConVar("sm_rtu_initialdelay", "30.0", "Time (in seconds) before first RTU can be held", 0, true, 0.00);
 	g_Cvar_Interval = CreateConVar("sm_rtu_interval", "240.0", "Time (in seconds) after a failed RTU before another can be held", 0, true, 0.00);
-	// g_Cvar_ChangeTime = CreateConVar("sm_rtu_changetime", "0", "When to change the map after a succesful RTU: 0 - Instant, 1 - RoundEnd, 2 - MapEnd", _, true, 0.0, true, 2.0);
-	// g_Cvar_RTUPostVoteAction = CreateConVar("sm_rtu_postvoteaction", "0", "What to do with RTU's after a mapvote has completed. 0 - Allow, success = instant change, 1 - Deny", _, true, 0.0, true, 1.0);
 
 	RegConsoleCmd("sm_rtu", Command_RTU);
 
@@ -108,8 +98,7 @@ public void OnPluginStart()
 	}
 }
 
-public void OnMapEnd()
-{
+public void OnMapEnd() {
 	g_RTUAllowed = false;
 	g_Voters = 0;
 	g_Votes = 0;
@@ -117,14 +106,12 @@ public void OnMapEnd()
 	// g_InChange = false;
 }
 
-public void OnConfigsExecuted()
-{
+public void OnConfigsExecuted() {
 	// TODO: do we still need this flag? is there a better one? can we use null?
 	CreateTimer(g_Cvar_InitialDelay.FloatValue, Timer_DelayRTU, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
-public void OnClientConnected(int client)
-{
+public void OnClientConnected(int client) {
 	if (!IsFakeClient(client))
 	{
 		g_Voters++;
@@ -132,8 +119,7 @@ public void OnClientConnected(int client)
 	}
 }
 
-public void OnClientDisconnect(int client)
-{
+public void OnClientDisconnect(int client) {
 	if (g_Voted[client])
 	{
 		g_Votes--;
@@ -151,13 +137,7 @@ public void OnClientDisconnect(int client)
 		g_Votes >= g_VotesNeeded &&
 		g_RTUAllowed )
 	{
-		// if (g_Cvar_RTUPostVoteAction.IntValue == 1 && HasEndOfMapVoteFinished())
-		// {
-		// 	return;
-		// }
-
 		ActivateRTU();
-		// StartRTU();
 	}
 }
 
@@ -179,61 +159,39 @@ public void OnClientSayCommand_Post(int client, const char[] command, const char
 	}
 }
 
-public Action Command_RTU(int client, int args)
-{
-	if (!client)
-	{
-		return Plugin_Handled;
-	}
-
-	AttemptRTU(client);
-
+public Action Command_RTU(int client, int args) {
+	if (client) { AttemptRTU(client); }
 	return Plugin_Handled;
 }
 
-void AttemptRTU(int client)
-{
-	if (!g_RTUAllowed)
-	{
+void AttemptRTU(int client) {
+	if (!g_RTUAllowed) {
 		ReplyToCommand(client, "[SM] %t", "RTU Not Allowed");
 		return;
 	}
 
-	// TODO: what purpose was this serving?
-	// if (!CanMapChooserStartVote())
-	// {
-	// 	ReplyToCommand(client, "[SM] %t", "RTU Started");
-	// 	return;
-	// }
-
-	if (GetClientCount(true) < g_Cvar_MinPlayers.IntValue)
-	{
+	if (GetClientCount(true) < g_Cvar_MinPlayers.IntValue) {
 		ReplyToCommand(client, "[SM] %t", "Minimal Players Not Met");
 		return;
 	}
 
-	if (g_Voted[client])
-	{
+	if (g_Voted[client]) {
 		ReplyToCommand(client, "[SM] %t", "Already Voted", g_Votes, g_VotesNeeded);
 		return;
 	}
 
-	char name[MAX_NAME_LENGTH];
-	GetClientName(client, name, sizeof(name));
+	char requestedBy[MAX_NAME_LENGTH];
+	GetClientName(client, requestedBy, sizeof(requestedBy));
 
 	g_Votes++;
 	g_Voted[client] = true;
 
-	PrintToChatAll("[SM] %t", "RTU Requested", name, g_Votes, g_VotesNeeded);
+	PrintToChatAll("[SM] %t", "RTU Requested", requestedBy, g_Votes, g_VotesNeeded);
 
-	if (g_Votes >= g_VotesNeeded)
-	{
-		ActivateRTU();
-	}
+	if (g_Votes >= g_VotesNeeded) { ActivateRTU(); }
 }
 
-public Action Timer_DelayRTU(Handle timer)
-{
+public Action Timer_DelayRTU(Handle timer) {
 	g_RTUAllowed = true;
 
 	return Plugin_Continue;
