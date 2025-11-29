@@ -11,14 +11,12 @@
  * Borrows heavily from the original `Rock The Vote` plugin by AlliedModders LLC
  *
  * NOTE: func_upgradestation must have an arbitrary model set or it will not
- *       open/close the upgrades menu when players enter/exit it's bounding box
+ *       open/close the upgrades menu when players enter/exit its bounding box.
+ *		 The resupply locker model is a good candidate for this, but it's not
+ *       garunteed - some maps use an alternate model, so we will check this and
+ *       precache when necessary
  *
- * NOTE: for dev we're using "models/props_gameplay/resupply_locker.mdl" but not
- *       all maps use this model.
- *
- * TODO: Solve for the above...
- *       - Can plugins precache models? If so - no problem
- *       - Can plugins query the list of precached models? if so - just grab one
+ * TODO:
  *
  * =============================================================================
  *
@@ -68,6 +66,7 @@ ConVar g_Cvar_InitialDelay;
 // TODO: add a timer for re-voting after a failed vote
 ConVar g_Cvar_Interval;
 
+char g_RTUStationModel[] = "models/props_gameplay/resupply_locker.mdl";
 bool g_RTUAllowed = false;	    // True if RTU is available to players. Used to delay rtu votes.
 int g_Voters = 0;				// Total voters connected. Doesn't include fake clients.
 int g_Votes = 0;				// Total number of votes
@@ -75,6 +74,9 @@ int g_VotesNeeded = 0;			// Necessary votes before upgrades are activated. (vote
 bool g_Voted[MAXPLAYERS+1] = {false, ...};
 
 public void OnPluginStart() {
+	// Ensure this model is precached (see notes at top of file)
+	if (!IsModelPrecached(g_RTUStationModel)) { PrecacheModel(g_RTUStationModel, true); }
+
 	LoadTranslations("common.phrases");
 	LoadTranslations("rock_the_upgrades.phrases");
 
