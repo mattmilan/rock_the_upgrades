@@ -11,14 +11,15 @@
  * Borrows heavily from the original `Rock The Vote` plugin by AlliedModders LLC
  *
  * NOTE: func_upgradestation must have an arbitrary model set or it will not
- *       open/close the upgrades menu when players enter/exit it's bounding box
+ *       open/close the upgrades menu when players enter/exit its bounding box.
+ *		 The resupply locker model is a good candidate for this, but it's not
+ *       garunteed - some maps use an alternate model, so we will check this and
+ *       precache when necessary
  *
- * NOTE: for dev we're using "models/props_gameplay/resupply_locker.mdl" but not
- *       all maps use this model.
- *
- * TODO: Solve for the above...
- *       - Can plugins precache models? If so - no problem
- *       - Can plugins query the list of precached models? if so - just grab one
+ * TODO:
+ * - add a timer for re-voting after a failed vote
+ * - reset currency if map is extended
+ * - add more configuration options
  *
  * =============================================================================
  *
@@ -48,18 +49,15 @@
 
 #include <sourcemod>
 #include <sdktools>
-#include <mapchooser>
-#include <nextmap>
 #include <sdkhooks>
 #include <enable_upgrades>
 
 #pragma semicolon 1
 #pragma newdecls required
 
-public Plugin myinfo =
-{
+public Plugin myinfo = {
 	name = "Rock The Upgrades",
-	author = "Matt Milan (MurderousIntent)",
+	author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
 	version = SOURCEMOD_VERSION,
 	url = "https://github.com/mattmilan/rock_the_upgrades"
@@ -68,29 +66,32 @@ public Plugin myinfo =
 ConVar g_Cvar_Needed;
 ConVar g_Cvar_MinPlayers;
 ConVar g_Cvar_InitialDelay;
+// TODO: add a timer for re-voting after a failed vote
 ConVar g_Cvar_Interval;
-ConVar g_Cvar_ChangeTime;
-ConVar g_Cvar_RTUPostVoteAction;
+ConVar g_Cvar_CurrencyOnKill;
 
+char g_RTUStationModel[] = "models/props_gameplay/resupply_locker.mdl";
 bool g_RTUAllowed = false;	    // True if RTU is available to players. Used to delay rtu votes.
 int g_Voters = 0;				// Total voters connected. Doesn't include fake clients.
 int g_Votes = 0;				// Total number of votes
 int g_VotesNeeded = 0;			// Necessary votes before upgrades are activated. (voters * percent_needed)
 bool g_Voted[MAXPLAYERS+1] = {false, ...};
 
-bool g_InChange = false;
+public void OnPluginStart() {
+	// Ensure this model is precached (see notes at top of file)
+	if (!IsModelPrecached(g_RTUStationModel)) { PrecacheModel(g_RTUStationModel, true); }
 
-public void OnPluginStart()
-{
+	// TODO: tried event `rd_robot_killed` but it never seemed to fire
+	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
+
 	LoadTranslations("common.phrases");
 	LoadTranslations("rock_the_upgrades.phrases");
 
 	g_Cvar_Needed = CreateConVar("sm_rtu_needed", "0.60", "Percentage of players needed to rockthevote (Def 60%)", 0, true, 0.05, true, 1.0);
 	g_Cvar_MinPlayers = CreateConVar("sm_rtu_minplayers", "0", "Number of players required before RTU will be enabled.", 0, true, 0.0, true, float(MAXPLAYERS));
-	g_Cvar_InitialDelay = CreateConVar("sm_rtu_initialdelay", "30.0", "Time (in seconds) before first RTU can be held", 0, true, 0.00);
-	g_Cvar_Interval = CreateConVar("sm_rtu_interval", "240.0", "Time (in seconds) after a failed RTU before another can be held", 0, true, 0.00);
-	g_Cvar_ChangeTime = CreateConVar("sm_rtu_changetime", "0", "When to change the map after a succesful RTU: 0 - Instant, 1 - RoundEnd, 2 - MapEnd", _, true, 0.0, true, 2.0);
-	g_Cvar_RTUPostVoteAction = CreateConVar("sm_rtu_postvoteaction", "0", "What to do with RTU's after a mapvote has completed. 0 - Allow, success = instant change, 1 - Deny", _, true, 0.0, true, 1.0);
+	g_Cvar_InitialDelay = CreateConVar("sm_rtu_initialdelay", "15.0", "Time (in seconds) before first RTU can be held", 0, true, 0.00);
+	g_Cvar_Interval = CreateConVar("sm_rtu_interval", "120.0", "Time (in seconds) after a failed RTU before another can be held", 0, true, 0.00);
+	g_Cvar_CurrencyOnKill = CreateConVar("sm_rtu_currency_on_kill", "25", "Amount of currency to give to players on robot kill", 0, true, 0.0, true, 1000.0);
 
 	RegConsoleCmd("sm_rtu", Command_RTU);
 
@@ -99,175 +100,109 @@ public void OnPluginStart()
 	OnMapEnd();
 
 	/* Handle late load */
-	for (int i=1; i<=MaxClients; i++)
-	{
-		if (IsClientConnected(i))
-		{
+	for (int i=1; i<=MaxClients; i++) {
+		if (IsClientConnected(i)) {
 			OnClientConnected(i);
 		}
 	}
 }
 
-public void OnMapEnd()
-{
+public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
+	int client = GetClientOfUserId(event.GetInt("attacker"));
+	AddClientCurrency(client, g_Cvar_CurrencyOnKill.IntValue);
+	return Plugin_Continue;
+}
+
+public void OnMapEnd() {
 	g_RTUAllowed = false;
 	g_Voters = 0;
 	g_Votes = 0;
 	g_VotesNeeded = 0;
-	g_InChange = false;
 }
 
-public void OnConfigsExecuted()
-{
+public int GetClientCurrency(int client) {
+	return GetEntProp(client, Prop_Send, "m_nCurrency");
+}
+
+public void SetClientCurrency(int client, int amount) {
+	SetEntProp(client, Prop_Send, "m_nCurrency", amount);
+}
+
+public void AddClientCurrency(int client, int amount) {
+	SetClientCurrency(client, amount+GetClientCurrency(client));
+}
+
+public void OnConfigsExecuted() {
+	// TODO: do we still need this flag? is there a better one? can we use null?
 	CreateTimer(g_Cvar_InitialDelay.FloatValue, Timer_DelayRTU, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
-public void OnClientConnected(int client)
-{
-	if (!IsFakeClient(client))
-	{
+// Raise the threshold of required votes
+public void OnClientConnected(int client) {
+	if (!IsFakeClient(client)) {
 		g_Voters++;
 		g_VotesNeeded = RoundToCeil(float(g_Voters) * g_Cvar_Needed.FloatValue);
 	}
 }
 
-public void OnClientDisconnect(int client)
-{
-	if (g_Voted[client])
-	{
+// Lower the threshold of required votes. Activate RTU if exceeded
+// Clear the clients vote if present
+// Check votes against new threshold and activate RTU if exceeded
+public void OnClientDisconnect(int client) {
+	if (g_Voted[client]) {
 		g_Votes--;
 		g_Voted[client] = false;
 	}
 
-	if (!IsFakeClient(client))
-	{
+	if (!IsFakeClient(client)) {
 		g_Voters--;
 		g_VotesNeeded = RoundToCeil(float(g_Voters) * g_Cvar_Needed.FloatValue);
 	}
-
+	// TODO: simplify
 	if (g_Votes &&
 		g_Voters &&
 		g_Votes >= g_VotesNeeded &&
-		g_RTUAllowed )
-	{
-		if (g_Cvar_RTUPostVoteAction.IntValue == 1 && HasEndOfMapVoteFinished())
-		{
-			return;
-		}
-
-		StartRTU();
+		g_RTUAllowed ) {
+		ActivateRTU();
 	}
 }
 
-public void OnClientSayCommand_Post(int client, const char[] command, const char[] sArgs)
-{
-	if (!client || IsChatTrigger())
-	{
-		return;
-	}
-
-	if (strcmp(sArgs, "rtu", false) == 0 || strcmp(sArgs, "rocktheupgrade", false) == 0)
-	{
-		//ActivateRTU();
-		ActivatePush();
-
-		//ReplySource old = SetCmdReplySource(SM_REPLY_TO_CHAT);
-
-		//AttemptRTU(client);
-
-		//SetCmdReplySource(old);
-	}
-}
-
-public Action Command_RTU(int client, int args)
-{
-	if (!client)
-	{
-		return Plugin_Handled;
-	}
-
-	AttemptRTU(client);
-
+// Triggered when a client chats "/rtu" or "!rtu"
+public Action Command_RTU(int client, int args) {
+	if (client) { AttemptRTU(client); }
 	return Plugin_Handled;
 }
 
-void AttemptRTU(int client)
-{
-	// if (!g_RTUAllowed || (g_Cvar_RTUPostVoteAction.IntValue == 1 && HasEndOfMapVoteFinished()))
-	// {
-	// 	ReplyToCommand(client, "[SM] %t", "RTU Not Allowed");
-	// 	return;
-	// }
-
-	if (!CanMapChooserStartVote())
-	{
-		ReplyToCommand(client, "[SM] %t", "RTU Started");
+// Activate RTU, or reply to player with a failure message
+void AttemptRTU(int client) {
+	if (!g_RTUAllowed) {
+		ReplyToCommand(client, "[SM] %t", "RTU Not Allowed");
 		return;
 	}
 
-	if (GetClientCount(true) < g_Cvar_MinPlayers.IntValue)
-	{
+	if (GetClientCount(true) < g_Cvar_MinPlayers.IntValue) {
 		ReplyToCommand(client, "[SM] %t", "Minimal Players Not Met");
 		return;
 	}
 
-	if (g_Voted[client])
-	{
+	if (g_Voted[client]) {
 		ReplyToCommand(client, "[SM] %t", "Already Voted", g_Votes, g_VotesNeeded);
 		return;
 	}
 
-	char name[MAX_NAME_LENGTH];
-	GetClientName(client, name, sizeof(name));
+	char requestedBy[MAX_NAME_LENGTH];
+	GetClientName(client, requestedBy, sizeof(requestedBy));
 
 	g_Votes++;
 	g_Voted[client] = true;
 
-	PrintToChatAll("[SM] %t", "RTU Requested", name, g_Votes, g_VotesNeeded);
+	PrintToChatAll("[SM] %t", "RTU Requested", requestedBy, g_Votes, g_VotesNeeded);
 
-	if (g_Votes >= g_VotesNeeded)
-	{
-		StartRTU();
-	}
+	if (g_Votes >= g_VotesNeeded) { ActivateRTU(); }
 }
 
-public Action Timer_DelayRTU(Handle timer)
-{
+public Action Timer_DelayRTU(Handle timer) {
 	g_RTUAllowed = true;
 
 	return Plugin_Continue;
-}
-
-void StartRTU() {
-	if (g_InChange)
-	{
-		return;
-	}
-
-    ActivateRTU();
-}
-
-void ResetRTU()
-{
-	g_Votes = 0;
-
-	for (int i=1; i<=MAXPLAYERS; i++)
-	{
-		g_Voted[i] = false;
-	}
-}
-
-public Action Timer_ChangeMap(Handle hTimer)
-{
-	g_InChange = false;
-
-	LogMessage("RTU changing map manually");
-
-	char map[PLATFORM_MAX_PATH];
-	if (GetNextMap(map, sizeof(map)))
-	{
-		ForceChangeLevel(map, "RTU after mapvote");
-	}
-
-	return Plugin_Stop;
 }
