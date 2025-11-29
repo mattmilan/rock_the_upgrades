@@ -17,6 +17,9 @@
  *       precache when necessary
  *
  * TODO:
+ * - add a timer for re-voting after a failed vote
+ * - reset currency if map is extended
+ * - add more configuration options
  *
  * =============================================================================
  *
@@ -65,6 +68,7 @@ ConVar g_Cvar_MinPlayers;
 ConVar g_Cvar_InitialDelay;
 // TODO: add a timer for re-voting after a failed vote
 ConVar g_Cvar_Interval;
+ConVar g_Cvar_CurrencyOnKill;
 
 char g_RTUStationModel[] = "models/props_gameplay/resupply_locker.mdl";
 bool g_RTUAllowed = false;	    // True if RTU is available to players. Used to delay rtu votes.
@@ -77,13 +81,17 @@ public void OnPluginStart() {
 	// Ensure this model is precached (see notes at top of file)
 	if (!IsModelPrecached(g_RTUStationModel)) { PrecacheModel(g_RTUStationModel, true); }
 
+	// TODO: tried event `rd_robot_killed` but it never seemed to fire
+	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
+
 	LoadTranslations("common.phrases");
 	LoadTranslations("rock_the_upgrades.phrases");
 
 	g_Cvar_Needed = CreateConVar("sm_rtu_needed", "0.60", "Percentage of players needed to rockthevote (Def 60%)", 0, true, 0.05, true, 1.0);
 	g_Cvar_MinPlayers = CreateConVar("sm_rtu_minplayers", "0", "Number of players required before RTU will be enabled.", 0, true, 0.0, true, float(MAXPLAYERS));
-	g_Cvar_InitialDelay = CreateConVar("sm_rtu_initialdelay", "30.0", "Time (in seconds) before first RTU can be held", 0, true, 0.00);
-	g_Cvar_Interval = CreateConVar("sm_rtu_interval", "240.0", "Time (in seconds) after a failed RTU before another can be held", 0, true, 0.00);
+	g_Cvar_InitialDelay = CreateConVar("sm_rtu_initialdelay", "15.0", "Time (in seconds) before first RTU can be held", 0, true, 0.00);
+	g_Cvar_Interval = CreateConVar("sm_rtu_interval", "120.0", "Time (in seconds) after a failed RTU before another can be held", 0, true, 0.00);
+	g_Cvar_CurrencyOnKill = CreateConVar("sm_rtu_currency_on_kill", "25", "Amount of currency to give to players on robot kill", 0, true, 0.0, true, 1000.0);
 
 	RegConsoleCmd("sm_rtu", Command_RTU);
 
@@ -99,11 +107,29 @@ public void OnPluginStart() {
 	}
 }
 
+public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
+	int client = GetClientOfUserId(event.GetInt("attacker"));
+	AddClientCurrency(client, g_Cvar_CurrencyOnKill.IntValue);
+	return Plugin_Continue;
+}
+
 public void OnMapEnd() {
 	g_RTUAllowed = false;
 	g_Voters = 0;
 	g_Votes = 0;
 	g_VotesNeeded = 0;
+}
+
+public int GetClientCurrency(int client) {
+	return GetEntProp(client, Prop_Send, "m_nCurrency");
+}
+
+public void SetClientCurrency(int client, int amount) {
+	SetEntProp(client, Prop_Send, "m_nCurrency", amount);
+}
+
+public void AddClientCurrency(int client, int amount) {
+	SetClientCurrency(client, amount+GetClientCurrency(client));
 }
 
 public void OnConfigsExecuted() {
