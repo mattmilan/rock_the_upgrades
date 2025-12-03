@@ -57,23 +57,21 @@
 #pragma newdecls required
 
 public Plugin myinfo = {
-	name = "Rock The Upgrades",
+	name = "Rock The Upgrades (or Freaky Fair Anywhere)",
 	author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
 	version = SOURCEMOD_VERSION,
 	url = "https://github.com/mattmilan/rock_the_upgrades"
 };
 
-ConVar g_Cvar_Needed;
-ConVar g_Cvar_MinPlayers;
-ConVar g_Cvar_InitialDelay;
+ConVar g_Cvar_VoteThreshold;
 
 ConVar g_Cvar_CurrencyOnKillMin;
 ConVar g_Cvar_CurrencyOnKillMax;
 ConVar g_Cvar_CurrencyOnCapturePoint;
 ConVar g_Cvar_CurrencyOnCaptureFlag;
 ConVar g_Cvar_CurrencyOnDomination;
-ConVar g_Cvar_CurrencyOnRevenge;
+ConVar g_Cvar_RevengeMultiplier;
 ConVar g_Cvar_CurrencyStarting;
 ConVar g_Cvar_CurrencyMultiplier;
 ConVar g_Cvar_CurrencyDeathTax;
@@ -85,264 +83,344 @@ ConVar g_Cvar_CurrencyDeathTax;
 // ConVar g_Cvar_CurrencyOverTimeFrequency;
 // ConVar g_Cvar_CurrencyLimit;
 
-bool g_RTUAllowed = false;	    // False until voting is allowed. Used along with a timer, but could be tied to events
-bool g_RTUAvailable = false;    // False if the map already implements some kind of upgrades (like in cp_freaky_fair)
-bool g_RTUActivated = false;	// False until the vote passes. Prevents accidental revoting
-int g_VotesNeeded = 1;			// Necessary votes before upgrades are activated. (voters * percent_needed)
-ArrayList g_Votes;				// List of clients who have voted
+bool WaitingForPlayers = true;  // False until waiting phase has ended and setup phase has begun (30 seconds after server finishes loading the map)
+// int VotesNeeded = 1;			// Number of votes required to enable upgrades
+ArrayList Votes;				// List of clients who have voted
+StringMap RevengeTracker;		// Tracks which players have been dominated by whom
+/* CALLBACKS */
+public void OnPluginStart() {
+	Votes = new ArrayList();
+	RevengeTracker = new StringMap();
+	HookEvents();
+	InitConvars();
+	PrecacheRequiredModel();
+	LoadTranslations("common.phrases");
+	LoadTranslations("rock_the_upgrades.phrases");
+	RegConsoleCmd("sm_rtu", Command_RTU);
+	AutoExecConfig(true, "rtu");
+}
 
-/* SOURCEMOD CALLBACKS */
-	public void OnPluginStart() {
-		g_Votes = new ArrayList();
+// Sourcemod handles most things but ArrayLists must be closed out manually
+public void OnPluginEnd() {
+	Votes.Close();
+}
 
-		EnsureRTUAvailable();
-		EnsureRequiredModelIsPrecached();
-		HookEvents();
-		InitConvars();
-		LoadTranslations("common.phrases");
-		LoadTranslations("rock_the_upgrades.phrases");
+// Perform a reset. Unlike a round restart, we also need to reset the waiting phase check
+public void OnMapEnd() {
+	WaitingForPlayers = true;
+	ResetRTU();
+}
 
-		RegConsoleCmd("sm_rtu", Command_RTU);
-		AutoExecConfig(true, "rtu");
-	}
+// Sometimes the vote will pass from the lowered threshold caused by the disconnect of a client who didn't vote
+public void OnClientDisconnect(int client) {
+	RemoveVote(client);
+	CountVotes();
+}
 
-	public void OnPluginEnd() {
-		if (g_Votes != null) { return; }
-
-		g_Votes.Close();
-	}
-
-	public void OnMapEnd() {
-		g_RTUAllowed = false;
-		g_RTUActivated = false;
-		g_RTUAvailable = false;
-		g_Votes.Clear();
-		g_VotesNeeded = 1;
-	}
-
-	public void OnConfigsExecuted() {
-		// TODO: do we still need this flag? is there a better one? can we use null?
-		CreateTimer(g_Cvar_InitialDelay.FloatValue, Timer_DelayRTU, _, TIMER_FLAG_NO_MAPCHANGE);
-	}
-
-	// Update vote threshold (Ignore bots)
-	public void OnClientConnected(int client) {
-		if (IsFakeClient(client)) { return; }
-
-		CountVotes();
-	}
-
-	// Clear vote
-	public void OnClientDisconnect(int client) {
-		RemoveVote(client);
-	}
-/* END CALLBACKS */
 
 /* ACTIONS */
-	public Action Command_RTU(int client, int args) {
-		if (!client) { return Plugin_Continue; }
 
-		Vote(client);
-		return Plugin_Handled;
+Action Command_RTU(int client, int args) {
+	if (client) { Vote(client); }
+	return Plugin_Handled;
+}
+
+// Killing a player or bot earns currency. Dying will lose some currency (disablede by default)
+// TODO: Revenge earns extra currency
+Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
+	int killer = GetClientOfUserId(event.GetInt("attacker"));
+	int victim = GetClientOfUserId(event.GetInt("userid"));
+
+	int randomizedCurrency = RoundToCeil(float(GetRandomInt(g_Cvar_CurrencyOnKillMin.IntValue, g_Cvar_CurrencyOnKillMax.IntValue)) * g_Cvar_CurrencyMultiplier.FloatValue);
+	if (RevengeKill(killer, victim)) { randomizedCurrency *= g_Cvar_RevengeMultiplier.FloatValue; }
+	AddClientCurrency(killer, randomizedCurrency);
+
+	int deathTax = RoundToCeil(g_Cvar_CurrencyDeathTax.FloatValue * float(GetClientCurrency(victim)));
+	AddClientCurrency(victim, -deathTax);
+
+	return Plugin_Continue;
+}
+
+// Capturing a point earns currency for the whole team
+Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
+	int team = event.GetInt("team");
+	int currency = RoundToCeil(float(g_Cvar_CurrencyOnCapturePoint.IntValue)* g_Cvar_CurrencyMultiplier.FloatValue);
+	AddTeamCurrency(team, currency);
+
+	return Plugin_Continue;
+}
+
+// Capturing a flag earns currency for the whole team
+Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcast) {
+	int eventType = event.GetInt("eventtype");
+	if (eventType != 1) { return Plugin_Continue; } // 1 == capture
+
+	int carrier = event.GetInt("carrier");
+	int team = GetClientTeam(GetClientOfUserId(carrier));
+	int currency = RoundToCeil(float(g_Cvar_CurrencyOnCaptureFlag.IntValue)* g_Cvar_CurrencyMultiplier.FloatValue);
+	AddTeamCurrency(team, currency);
+
+	return Plugin_Continue;
+}
+
+// Dominating a player earns bonus currency (disabled by default. not very fair imo)
+Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
+	int dominator = GetClientOfUserId(event.GetInt("dominator"));
+	int dominated = GetClientOfUserId(event.GetInt("dominated"));
+	int currency = RoundToCeil(float(g_Cvar_CurrencyOnDomination.IntValue)* g_Cvar_CurrencyMultiplier.FloatValue);
+	AddClientCurrency(dominator, currency);
+
+	// track dominations to determine revenges during player_death hook
+	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
+	char dominatedName[MAX_NAME_LENGTH]; GetClientName(dominated, dominatedName, sizeof(dominatedName));
+	RevengeTracker.SetString(dominatedName, dominatorName);
+
+	return Plugin_Continue;
+}
+
+// Ideally we would have hooked into the `teamplay_waiting_ends` event as this provides a 30 second delay; most players
+// would be connected by then and consequently able to participate in the vote. Unfortunately the event never seems
+// to fire (see https://forums.alliedmods.net/showthread.php?p=584160)
+//
+// We could check for the start of the setup phase (see https://forums.alliedmods.net/showthread.php?p=584160), but this
+// phase may never occur due to map configuration. In this case, voting would never be allowed
+//
+// RTV used a timer, which handles the above issues excellently, but I'm a sucker for event-driven behavior, so  I'd
+// rather stick to events, and settle for the sub-optimal but ever-reliable `teamplay_round_active` event, which comes
+// with two (negligible) caveats
+//  - it fires rather quickly (less than 10 seconds after map load)
+//  - it fires multiple times during a map's lifespan
+//
+// Guarding against the latter is no big deal, but the former creates a situation where a potentially small group of
+// fast-loading players would be able to pass a vote before the majority has time to participate.
+//
+// However, given the demand from the community for the functionality provided through this vote, this is also most
+// likely a non-issue; in fact it may be more sensible to enable the functionality by default and only vote when the
+// players wish it disabled.
+Action Event_TeamplayRoundActive(Event event, const char[] name, bool dontBroadcast) {
+	if (WaitingForPlayers) {
+		WaitingForPlayers = !WaitingForPlayers;
 	}
 
-	public Action Timer_DelayRTU(Handle timer) {
-		g_RTUAllowed = true;
-		return Plugin_Continue;
-	}
+	return Plugin_Continue;
+}
 
-	public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
-		int client = GetClientOfUserId(event.GetInt("attacker"));
-		int randomizedCurrency = RoundToCeil(float(GetRandomInt(g_Cvar_CurrencyOnKillMin.IntValue, g_Cvar_CurrencyOnKillMax.IntValue)) * g_Cvar_CurrencyMultiplier.FloatValue);
-		AddClientCurrency(client, randomizedCurrency);
+// Reset state on round restart. Voting to extend a map should trigger this as well
+Action Event_TeamplayRestartRound(Event event, const char[] name, bool dontBroadcast) {
+	ResetRTU();
 
-		int victim = GetClientOfUserId(event.GetInt("userid"));
-		int deathTax = RoundToCeil(g_Cvar_CurrencyDeathTax.FloatValue * float(GetClientCurrency(victim)));
-		AddClientCurrency(victim, -deathTax);
-		return Plugin_Continue;
-	}
-
-	Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
-		int team = event.GetInt("team");
-		int currency = RoundToCeil(float(g_Cvar_CurrencyOnCapturePoint.IntValue)* g_Cvar_CurrencyMultiplier.FloatValue);
-		GiveTeamCurrency(team, currency);
-		return Plugin_Continue;
-	}
-
-	Action Event_TeamplayFlagCaptured(Event event, const char[] name, bool dontBroadcast) {
-		int team = event.GetInt("team");
-		int currency = RoundToCeil(float(g_Cvar_CurrencyOnCaptureFlag.IntValue)* g_Cvar_CurrencyMultiplier.FloatValue);
-		GiveTeamCurrency(team, currency);
-		return Plugin_Continue;
-	}
-
-	Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
-		int client = GetClientOfUserId(event.GetInt("dominator"));
-		int currency = RoundToCeil(float(g_Cvar_CurrencyOnDomination.IntValue)* g_Cvar_CurrencyMultiplier.FloatValue);
-		AddClientCurrency(client, currency);
-		return Plugin_Continue;
-	}
-
-	Action Event_PlayerRevenge(Event event, const char[] name, bool dontBroadcast) {
-		int client = GetClientOfUserId(event.GetInt("revenge"));
-		int currency = RoundToCeil(float(g_Cvar_CurrencyOnRevenge.IntValue)* g_Cvar_CurrencyMultiplier.FloatValue);
-		AddClientCurrency(client, currency);
-		return Plugin_Continue;
-	}
-/* END ACTIONS */
+	return Plugin_Continue;
+}
 
 /* INITIALIZERS */
-	void EnsureRTUAvailable() {
-		g_RTUAvailable = FindEntityByClassname(-1, "func_upgradestation") == -1;
-	}
 
-	void EnsureRequiredModelIsPrecached() {
-		char g_ArbitraryModel[] = "models/props_gameplay/resupply_locker.mdl";
-		if (!IsModelPrecached(g_ArbitraryModel)) {	PrecacheModel(g_ArbitraryModel, true); }
-	}
+// Upgrade Stations don't function unless we assign an arbitrary model.
+// FIX: feels like a hack but I'm too stupid and lazy to dig deeper
+void PrecacheRequiredModel() {
+	char g_ArbitraryModel[] = "models/props_gameplay/resupply_locker.mdl";
+	if (!IsModelPrecached(g_ArbitraryModel)) {	PrecacheModel(g_ArbitraryModel, true); }
+}
 
-	void HookEvents(){
-		// TODO: tried event `rd_robot_killed` but it never seemed to fire
-		HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
-		HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
-		HookEvent("teamplay_flag_captured", Event_TeamplayFlagCaptured, EventHookMode_Post);
-		HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
-		HookEvent("player_revenge", Event_PlayerRevenge, EventHookMode_Post);
+void HookEvents(){
+	// delays voting a bit to prevent speedy players from passing a vote before others can react
+	HookEvent("teamplay_round_active", Event_TeamplayRoundActive, EventHookMode_Post);
 
-	}
+	// reset state if round restarts/map extends
+	// FIX: this fires multiple times during a map's lifespan
+	// 	    it fires during waiting and during setup, and maybe more
+	//      guard the reset
+	HookEvent("teamplay_restart_round", Event_TeamplayRestartRound, EventHookMode_Post);
 
-	void GiveTeamCurrency(int team, int amount) {
-		for (int i = 1; i <= MaxClients; i++) {
-			if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
-			if (GetClientTeam(i) != team) { continue; }
+	// enable currency gain on kills
+	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
 
-			AddClientCurrency(i, amount);
-		}
-	}
+	// enable currency gain on various interesting game events
+	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
+	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
+	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
+}
 
-	// NOTE: Many of these defaults and boundaries were decided arbitrarily and without much testing -
-	void InitConvars() {
-		// Voting behavior
-		g_Cvar_Needed = CreateConVar("sm_rtu_voting_threshold", "0.55", "Percentage of players needed to rockthevote. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
-		g_Cvar_MinPlayers = CreateConVar("sm_rtu_min_players", "1", "Number of players required before RTU will be enabled. [1, 0..MAXPLAYERS]", 0, true, 0.0, true, float(MAXPLAYERS));
-		g_Cvar_InitialDelay = CreateConVar("sm_rtu_initial_delay", "0.0", "Time (in seconds) before first RTU can be held. [30, 0..]", 0, true, 0.0, false);
+//
+void InitConvars() {
+	// Voting behavior
+	g_Cvar_VoteThreshold = CreateConVar("sm_rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
 
-		// Currency rules and modifiers, with reasonable defaults
-		// g_Cvar_UpgradeCostMultiplier = CreateConVar("sm_rtu_upgrade_cost_multiplier", "1.0", "Multiplier for upgrade costs when RTU is activated. A value of zero provides free upgrades [1, 0..].", 0, true, 0.0, false);
-		g_Cvar_CurrencyStarting = CreateConVar("sm_rtu_currency_starting", "250", "Starting amount of currency for players. Negative values incur a debt. Don't blame me, blame Merasmus.  [250, -inf..inf]", 0, false, 0.0, false);
-		// g_Cvar_CurrencyLimit = CreateConVar("sm_rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
-		g_Cvar_CurrencyMultiplier = CreateConVar("sm_rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
-		g_Cvar_CurrencyDeathTax = CreateConVar("sm_rtu_currency_death_tax", "0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
+	// Currency rules and modifiers, with reasonable defaults
+	g_Cvar_CurrencyStarting = CreateConVar("sm_rtu_currency_starting", "250", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
+	g_Cvar_CurrencyMultiplier = CreateConVar("sm_rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyDeathTax = CreateConVar("sm_rtu_currency_death_tax", "0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
 
-		// Currency from kills. Random between min and max. On by default
-		g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
-		g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
+	// Currency from kills. Random between min and max. On by default
+	g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
 
-		// Bonus currency from special events. Off by default.
-		g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "250", "Amount of currency to give to team on point capture [250, 0..]", 0, true, 0.0, false);
-		g_Cvar_CurrencyOnCaptureFlag = CreateConVar("sm_rtu_currency_on_capture_flag", "250", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
-		g_Cvar_CurrencyOnDomination = CreateConVar("sm_rtu_currency_on_domination", "0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
-		g_Cvar_CurrencyOnRevenge = CreateConVar("sm_rtu_currency_on_revenge", "100", "Amount of currency to give a player on revenge [100, 0..]", 0, true, 0.0, false);
+	// Bonus currency from special events. Off by default.
+	g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "250", "Amount of currency to give to team on point capture [250, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("sm_rtu_currency_on_capture_flag", "250", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnDomination = CreateConVar("sm_rtu_currency_on_domination", "0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
+	g_Cvar_RevengeMultiplier = CreateConVar("sm_rtu_currency_on_revenge", "4", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
 
-		// Time-based currency gain. Off by default
-		// g_Cvar_CurrencyOverTime = CreateConVar("sm_rtu_currency_over_time", "0", "Enable or disable time-based currency gain [0, 0,1]", 0, true, 0.0, true, 1.0);
-		// g_Cvar_CurrencyOverTimeRate = CreateConVar("sm_rtu_currency_over_time_rate", "5", "Amount of currency earned per tick [5, 1..]", 0, true, 1.0, false);
-		// g_Cvar_CurrencyOverTimeFrequency = CreateConVar("sm_rtu_currency_over_time_frequency", "30", "Frequency of time-based currency gain [30, 15..]", 0, true, 15.0, false);
-	}
-/* END INITIALIZERS */
+	// Time-based currency gain. Off by default
+	// g_Cvar_CurrencyOverTime = CreateConVar("sm_rtu_currency_over_time", "0", "Enable or disable time-based currency gain [0, 0,1]", 0, true, 0.0, true, 1.0);
+	// g_Cvar_CurrencyOverTimeRate = CreateConVar("sm_rtu_currency_over_time_rate", "5", "Amount of currency earned per tick [5, 1..]", 0, true, 1.0, false);
+	// g_Cvar_CurrencyOverTimeFrequency = CreateConVar("sm_rtu_currency_over_time_frequency", "30", "Frequency of time-based currency gain [30, 15..]", 0, true, 15.0, false);
+
+	// Difficulty modifiers
+	// g_Cvar_UpgradeCostMultiplier = CreateConVar("sm_rtu_upgrade_cost_multiplier", "1.0", "Multiplier for upgrade costs when RTU is activated. A value of zero provides free upgrades [1, 0..].", 0, true, 0.0, false);
+	// g_Cvar_CurrencyLimit = CreateConVar("sm_rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
+}
+
 
 /* VOTING */
-	// Add a vote and then check if vote passes
-	void Vote(int client) {
-		if (!VotePossible(client)) { return; }
 
-		g_Votes.Push(client);
-		ReportVote(client);
-		CountVotes();
+// Add a vote if possible, then report and count votes
+void Vote(int client) {
+	if (!VotePossible(client)) { return; }
+
+	Votes.Push(client);
+	ReportVote(client);
+	CountVotes();
+}
+
+// Remove a vote
+void RemoveVote(int client) {
+	int vote = Votes.FindValue(client);
+	if (vote > -1) { Votes.Erase(vote); }
+}
+
+// Alert all players of the client's vote, vote count, and votes needed
+void ReportVote(int client) {
+	char requestedBy[MAX_NAME_LENGTH];
+	GetClientName(client, requestedBy, sizeof(requestedBy));
+	PrintToChatAll("[SM] %t", "RTU Requested", requestedBy, Votes.Length, VotesNeeded());
+}
+
+// Enable upgrades and award starting currency if vote passes
+void CountVotes() {
+	if (Votes.Length < VotesNeeded()) { return; }
+
+	EnableUpgrades();
+
+	for(int team = 0; team < GetTeamCount(); team++) {
+		AddTeamCurrency(team, RoundToCeil(g_Cvar_CurrencyStarting.FloatValue * g_Cvar_CurrencyMultiplier.FloatValue));
+	}
+}
+
+// Get required number of votes from a percentage of connected player count. Ensure a minimum of 1 to prevent unintended activation
+int VotesNeeded() {
+	int votesNeeded = RoundToCeil(float(GetClientCount(true)) * g_Cvar_VoteThreshold.FloatValue);
+	return votesNeeded < 1 ? 1 : votesNeeded;
+}
+
+// Check if it's safe to vote
+bool VotePossible(int client) {
+	// No need to vote
+	if (UpgradesAlreadyEnabled()) {
+		ReplyToCommand(client, "[SM] %t", "RTU Already Enabled");
+		return false;
 	}
 
-	// Remove a vote and then check if vote passes
-	void RemoveVote(int client) {
-		int vote = g_Votes.FindValue(client);
-		if (vote == -1) { return; }
-
-		g_Votes.Erase(vote);
-		CountVotes();
+	// Too soon to vote
+	if (WaitingForPlayers) {
+		ReplyToCommand(client, "[SM] %t", "RTU Not Allowed");
+		return false;
 	}
 
-	// Alert all players of the vote and current count
-	void ReportVote(int client) {
-		char requestedBy[MAX_NAME_LENGTH];
-		GetClientName(client, requestedBy, sizeof(requestedBy));
-		PrintToChatAll("[SM] %t", "RTU Requested", requestedBy, g_Votes.Length, g_VotesNeeded);
+	// Already voted
+	if (Votes.FindValue(client) >= 0) {
+		ReplyToCommand(client, "[SM] %t", "RTU Already Voted", Votes.Length, VotesNeeded());
+		return false;
 	}
 
-	// Update threshold JIT and enable upgrades if vote passes
-	void CountVotes() {
-		UpdateVoteThreshold();
-		if (g_Votes.Length < g_VotesNeeded) { return; }
+	return true;
+}
 
-		g_RTUActivated = true;
-		EnableUpgrades();
-
-		for(int team = 0; team < GetTeamCount(); team++) {
-			GiveTeamCurrency(team, RoundToCeil(g_Cvar_CurrencyStarting.FloatValue * g_Cvar_CurrencyMultiplier.FloatValue));
-		}
-	}
-
-	// Get required number of votes from a percentage of connected player count
-	void UpdateVoteThreshold() {
-		int needed = RoundToCeil(float(GetClientCount(true)) * g_Cvar_Needed.FloatValue);
-		g_VotesNeeded = needed < 1 ? 1 : needed;
-		//g_VotesNeeded = RoundToCeil(float(GetClientCount(true)) * g_Cvar_Needed.FloatValue);
-	}
-
-	// Check if it's safe to vote
-	bool VotePossible(int client) {
-		if (!g_RTUAvailable) {
-			ReplyToCommand(client, "[SM] %t", "RTU Not Available");
-			return false;
-		}
-
-		if (g_RTUActivated) {
-			ReplyToCommand(client, "[SM] %t", "RTU Already Activated");
-			return false;
-		}
-
-		if (!g_RTUAllowed) {
-			ReplyToCommand(client, "[SM] %t", "RTU Not Allowed");
-			return false;
-		}
-
-		if (g_Votes.FindValue(client) >= 0) {
-			ReplyToCommand(client, "[SM] %t", "Already Voted", g_Votes.Length, g_VotesNeeded);
-			return false;
-		}
-
-		if (GetClientCount(true) < g_Cvar_MinPlayers.IntValue) {
-			ReplyToCommand(client, "[SM] %t", "Minimal Players Not Met");
-			return false;
-		}
-
-
-
-		return true;
-	}
-/* END VOTING */
 
 /* CURRENCY HELPERS */
-	// Get a client's currency value
-	public int GetClientCurrency(int client) {
-		return GetEntProp(client, Prop_Send, "m_nCurrency");
+
+// Get a client's currency value
+int GetClientCurrency(int client) {
+	return GetEntProp(client, Prop_Send, "m_nCurrency");
+}
+
+// Set client currency to an arbitrary value
+void SetClientCurrency(int client, int amount) {
+	SetEntProp(client, Prop_Send, "m_nCurrency", amount);
+}
+
+// Add an arbitrary value to a client's currency
+void AddClientCurrency(int client, int amount) {
+	SetClientCurrency(client, amount+GetClientCurrency(client));
+}
+
+// Add an arbitrary value to all clients on a team
+void AddTeamCurrency(int team, int amount) {
+	for (int i = 1; i <= MaxClients; i++) {
+		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
+		if (GetClientTeam(i) != team) { continue; }
+
+		AddClientCurrency(i, amount);
+	}
+}
+
+// Check if a kill is a revenge kill
+bool RevengeKill(int killer, int victim) {
+	char dominatedName[MAX_NAME_LENGTH];   GetClientName(killer, dominatedName, sizeof(dominatedName));
+	char dominatorName[MAX_NAME_LENGTH];   GetClientName(victim, dominatorName, sizeof(dominatorName));
+	char storedDominator[MAX_NAME_LENGTH]; RevengeTracker.GetString(dominatedName, storedDominator, sizeof(storedDominator));
+
+	if (StrEqual(dominatorName, storedDominator)) {
+		RevengeTracker.Remove(dominatedName);
+		return true;
 	}
 
-	// Set client currency to an arbitrary value
-	public void SetClientCurrency(int client, int amount) {
-		SetEntProp(client, Prop_Send, "m_nCurrency", amount);
-	}
+	return false;
+}
 
-	// Add an arbitrary value to a client's currency
-	public void AddClientCurrency(int client, int amount) {
-		SetClientCurrency(client, amount+GetClientCurrency(client));
+/* GAME STATE HELPERS */
+
+// The presence of an upgrade station indicates that upgrades are already enabled
+// Alternatively we could check `GameRules_GetProp("m_nForceUpgrades")` - maybe that's faster?
+bool UpgradesAlreadyEnabled() {
+	return FindEntityByClassname(-1, "func_upgradestation") != -1;
+}
+
+void ResetRTU() {
+	Votes.Clear();
+	ClearCurrency();
+	ClearUpgrades();
+	RemoveUpgradeStations();
+	DisableUpgrades();
+	// Clients.all.currency = 0
+	// Clients.all.upgrades.all.remove
+}
+
+void DisableUpgrades() {
+	PrintToChatAll("[SM] %t", "RTU Disabled");
+	GameRules_SetProp("m_nForceUpgrades", 2, 0);
+}
+
+void ClearCurrency() {
+	for (int i = 1; i <= MaxClients; i++) {
+		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
+		SetClientCurrency(i, 0);
 	}
-/* END CURRENCY HELPERS */
+}
+void ClearUpgrades() {
+	for (int i = 1; i <= MaxClients; i++) {
+		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
+
+		// RemoveAllUpgrades(i);
+		// 1. remove weapon attributes
+		// 2. remove player attributes
+		// 3. fuck
+		// int GetPlayerWeaponSlot(int client, int slot)
+	}
+}
+
+void RemoveUpgradeStations() {
+	int entity = -1;
+	while ((entity = FindEntityByClassname(entity, "func_upgradestation")) != -1) {
+		RemoveEntity(entity);
+	}
+}

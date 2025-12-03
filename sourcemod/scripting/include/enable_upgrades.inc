@@ -1,6 +1,6 @@
 // Primary method, called by plugin
 public void EnableUpgrades() {
-	PrintToChatAll("\n\nUpgrades Enabled!\n\n");
+	PrintToChatAll("[SM] %t", "RTU Enabled");
 	GameRules_SetProp("m_nForceUpgrades", 2, 4);
 	SpawnUpgradeStations();
 }
