@@ -1,5 +1,5 @@
 // Primary method, called by plugin
-public void ActivateRTU() {
+public void EnableUpgrades() {
 	PrintToChatAll("\n\nUpgrades Enabled!\n\n");
 	GameRules_SetProp("m_nForceUpgrades", 2, 4);
 	SpawnUpgradeStations();

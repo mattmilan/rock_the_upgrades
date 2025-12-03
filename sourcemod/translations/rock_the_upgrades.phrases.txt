@@ -10,6 +10,11 @@
 		"en"			"Enabling upgrades is not allowed yet."
 	}
 
+	"RTU Not Available"
+	{
+		"en"			"Upgrades are already enabled by the current map."
+	}
+
 	"RTU Started"
 	{
 		"en"			"Enabling upgrades has already started."
@@ -42,7 +47,6 @@
 	"RTU Upgrade Ready"
 	{
 		"en"			"Enabling upgrades!"
-
 	}
 
 	"Don't Change"
@@ -71,5 +75,10 @@
 	{
 		"#format"		"{1:s}"
 		"en"			"Enabling upgrades!"
+	}
+
+	"RTU Passes under the new player count"
+	{
+		"en"			"Enabling upgrades passes under the new player count."
 	}
 }
