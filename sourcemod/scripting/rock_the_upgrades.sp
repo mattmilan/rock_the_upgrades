@@ -205,12 +205,13 @@ Action Event_TeamplayRoundActive(Event event, const char[] name, bool dontBroadc
 	return Plugin_Continue;
 }
 
-// Reset state on round restart. Voting to extend a map should trigger this as well
-Action Event_TeamplayRestartRound(Event event, const char[] name, bool dontBroadcast) {
-	ResetRTU();
-
-	return Plugin_Continue;
-}
+// TODO: guard against multiple firings during a map's lifespan; target only restarts and extensions
+// Reset state on round restart. map extensions, and similar events
+// Action Event_TeamplayRestartRound(Event event, const char[] name, bool dontBroadcast) {
+// 	ResetRTU();
+//
+// 	return Plugin_Continue;
+// }
 
 /* INITIALIZERS */
 
@@ -229,9 +230,9 @@ void HookEvents(){
 	// FIX: this fires multiple times during a map's lifespan
 	// 	    it fires during waiting and during setup, and maybe more
 	//      guard the reset
-	HookEvent("teamplay_restart_round", Event_TeamplayRestartRound, EventHookMode_Post);
+	// HookEvent("teamplay_restart_round", Event_TeamplayRestartRound, EventHookMode_Post);
 
-	// enable currency gain on kills
+	// enable currency gain on kills. revenge kill bonus depends on `player_domination` hook
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
 
 	// enable currency gain on various interesting game events
@@ -240,7 +241,6 @@ void HookEvents(){
 	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
 }
 
-//
 void InitConvars() {
 	// Voting behavior
 	g_Cvar_VoteThreshold = CreateConVar("sm_rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
@@ -388,16 +388,14 @@ bool UpgradesAlreadyEnabled() {
 void ResetRTU() {
 	Votes.Clear();
 	ClearCurrency();
-	ClearUpgrades();
+	// ClearUpgrades();
 	RemoveUpgradeStations();
 	DisableUpgrades();
-	// Clients.all.currency = 0
-	// Clients.all.upgrades.all.remove
 }
 
 void DisableUpgrades() {
 	PrintToChatAll("[SM] %t", "RTU Disabled");
-	GameRules_SetProp("m_nForceUpgrades", 2, 0);
+	GameRules_SetProp("m_nForceUpgrades", 0, 0);
 }
 
 void ClearCurrency() {
@@ -406,17 +404,19 @@ void ClearCurrency() {
 		SetClientCurrency(i, 0);
 	}
 }
-void ClearUpgrades() {
-	for (int i = 1; i <= MaxClients; i++) {
-		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
 
-		// RemoveAllUpgrades(i);
-		// 1. remove weapon attributes
-		// 2. remove player attributes
-		// 3. fuck
-		// int GetPlayerWeaponSlot(int client, int slot)
-	}
-}
+// TODO: Implement!
+// void ClearUpgrades() {
+// 	for (int i = 1; i <= MaxClients; i++) {
+// 		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
+
+// 		// RemoveAllUpgrades(i);
+// 		// 1. remove weapon attributes
+// 		// 2. remove player attributes
+// 		// 3. fuck
+// 		// int GetPlayerWeaponSlot(int client, int slot)
+// 	}
+// }
 
 void RemoveUpgradeStations() {
 	int entity = -1;
