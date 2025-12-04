@@ -297,6 +297,7 @@ void ReportVote(int client) {
 
 // Enable upgrades and award starting currency if vote passes
 void CountVotes() {
+	if (UpgradesAlreadyEnabled()) { return; }
 	if (Votes.Length < VotesNeeded()) { return; }
 
 	EnableUpgrades();
