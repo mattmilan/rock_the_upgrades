@@ -316,6 +316,7 @@ void ReportVote(int client) {
 // Enable upgrades and award starting currency if vote passes
 void CountVotes() {
 	if (UpgradesAlreadyEnabled()) { return; }
+	if (PlayerCount == 0) { return; } // prevent voterless votes. it can happen!
 	if (Votes.Length < VotesNeeded()) { return; }
 
 	EnableUpgrades();
@@ -325,8 +326,11 @@ void CountVotes() {
 	}
 }
 
-// Get required number of votes from a percentage of connected player count.
+// Get required number of votes from a percentage of connected player count. Ensure a minimum of 1 to prevent unintended activation
 int VotesNeeded() {
+	// Prevent voteless votes. Too remeniscent of actual voting. Hahaha... God help us
+	if (PlayerCount <= 0) { return 1; }
+
 	return RoundToCeil(float(PlayerCount) * g_Cvar_VoteThreshold.FloatValue);
 }
 
