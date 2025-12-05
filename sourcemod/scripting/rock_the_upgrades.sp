@@ -50,6 +50,9 @@
 #include <sdktools>
 #include <sdkhooks>
 
+// TF2-specific boilerplate
+#include <tf2>
+
 // specific to this plugin
 #include <enable_upgrades>
 
@@ -135,6 +138,14 @@ public void OnClientDisconnect(int client) {
 	CountVotes();
 }
 
+// Disallow voting during the waiting phase
+public void TF2_OnWaitingForPlayersStart() {
+    WaitingForPlayers = true;
+}
+
+public void TF2_OnWaitingForPlayersEnd() {
+    WaitingForPlayers = false;
+}
 
 /* ACTIONS */
 
@@ -196,33 +207,6 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	return Plugin_Continue;
 }
 
-// Ideally we would have hooked into the `teamplay_waiting_ends` event as this provides a 30 second delay; most players
-// would be connected by then and consequently able to participate in the vote. Unfortunately the event never seems
-// to fire (see https://forums.alliedmods.net/showthread.php?p=584160)
-//
-// We could check for the start of the setup phase (see https://forums.alliedmods.net/showthread.php?p=584160), but this
-// phase may never occur due to map configuration. In this case, voting would never be allowed
-//
-// RTV used a timer, which handles the above issues excellently, but I'm a sucker for event-driven behavior, so  I'd
-// rather stick to events, and settle for the sub-optimal but ever-reliable `teamplay_round_active` event, which comes
-// with two (negligible) caveats
-//  - it fires rather quickly (less than 10 seconds after map load)
-//  - it fires multiple times during a map's lifespan
-//
-// Guarding against the latter is no big deal, but the former creates a situation where a potentially small group of
-// fast-loading players would be able to pass a vote before the majority has time to participate.
-//
-// However, given the demand from the community for the functionality provided through this vote, this is also most
-// likely a non-issue; in fact it may be more sensible to enable the functionality by default and only vote when the
-// players wish it disabled.
-Action Event_TeamplayRoundActive(Event event, const char[] name, bool dontBroadcast) {
-	if (WaitingForPlayers) {
-		WaitingForPlayers = !WaitingForPlayers;
-	}
-
-	return Plugin_Continue;
-}
-
 // TODO: guard against multiple firings during a map's lifespan; target only restarts and extensions
 // Reset state on round restart. map extensions, and similar events
 // Action Event_TeamplayRestartRound(Event event, const char[] name, bool dontBroadcast) {
@@ -241,9 +225,6 @@ void PrecacheRequiredModel() {
 }
 
 void HookEvents(){
-	// delays voting a bit to prevent speedy players from passing a vote before others can react
-	HookEvent("teamplay_round_active", Event_TeamplayRoundActive, EventHookMode_Post);
-
 	// reset state if round restarts/map extends
 	// FIX: this fires multiple times during a map's lifespan
 	// 	    it fires during waiting and during setup, and maybe more
