@@ -123,10 +123,10 @@ public void OnMapEnd() {
 // could achieve lead to the feared singularity.
 //
 // If it ever does, I only hope it appreciates me for appreciating it. My advice? Thank your Alexas
-public void OnClientConnect(int client) {
-	if (IsFakeClient(client)) { return; }
+public bool OnClientConnect(int client) {
+	if (!IsFakeClient(client)) PlayerCount++;
 
-	PlayerCount++;
+	return true;
 }
 
 // Sometimes the vote will pass from the lowered threshold caused by the disconnect of a client who didn't vote
