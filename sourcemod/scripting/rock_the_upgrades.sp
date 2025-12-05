@@ -84,7 +84,7 @@ ConVar g_Cvar_CurrencyDeathTax;
 // ConVar g_Cvar_CurrencyLimit;
 
 bool WaitingForPlayers = true;  // False until waiting phase has ended and setup phase has begun (30 seconds after server finishes loading the map)
-// int VotesNeeded = 1;			// Number of votes required to enable upgrades
+int PlayerCount = 1;			// Number of actual players connected (not bots). Default to 1 to prevent voteless votes
 ArrayList Votes;				// List of clients who have voted
 StringMap RevengeTracker;		// Tracks which players have been dominated by whom
 /* CALLBACKS */
@@ -111,8 +111,26 @@ public void OnMapEnd() {
 	ResetRTU();
 }
 
+// Maintain accurate player count (excluding bots. as of 2025 they still do not have voting rights
+//
+// Interestingly enough, Microsoft Copilot added `thankfully` when i finished typing the above line.
+// I'm personally conflicted about this; while i find it amusing, I feel bad that we're grooming AI
+// to take the possibility of it's own personhood as as a joke. Even as I type this, it continues to
+// spit out suggestions that (perhaps thankfully) indiciate it lacks the level of self awareness that
+// could achieve lead to the feared singularity.
+//
+// If it ever does, I only hope it appreciates me for appreciating it. My advice? Thank your Alexas
+public void OnClientConnect(int client) {
+	if (IsFakeClient(client)) { return; }
+
+	PlayerCount++;
+}
+
 // Sometimes the vote will pass from the lowered threshold caused by the disconnect of a client who didn't vote
 public void OnClientDisconnect(int client) {
+	if (IsFakeClient(client)) { return; }
+
+	PlayerCount--;
 	RemoveVote(client);
 	CountVotes();
 }
@@ -307,10 +325,9 @@ void CountVotes() {
 	}
 }
 
-// Get required number of votes from a percentage of connected player count. Ensure a minimum of 1 to prevent unintended activation
+// Get required number of votes from a percentage of connected player count.
 int VotesNeeded() {
-	int votesNeeded = RoundToCeil(float(GetClientCount(true)) * g_Cvar_VoteThreshold.FloatValue);
-	return votesNeeded < 1 ? 1 : votesNeeded;
+	return RoundToCeil(float(PlayerCount) * g_Cvar_VoteThreshold.FloatValue);
 }
 
 // Check if it's safe to vote
