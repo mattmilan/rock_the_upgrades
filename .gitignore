@@ -1,6 +1,8 @@
 *
-!enable_upgrades.inc
+
 !rock_the_upgrades.*
+!toggle_upgrades.*
+!currency_controller.*
 *.code-workspace
 !LICENSE
 !README.md
