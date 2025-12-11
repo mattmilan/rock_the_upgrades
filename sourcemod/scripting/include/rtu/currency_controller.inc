@@ -42,21 +42,21 @@ void HookCurrencyEvents() {
 
 void InitCurrencyConVars() {
 	// Currency rules and modifiers, with reasonable defaults
-	g_Cvar_CurrencyStarting = CreateConVar("sm_rtu_currency_starting", "250", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
+	g_Cvar_CurrencyStarting = CreateConVar("sm_rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
 	g_Cvar_CurrencyMultiplier = CreateConVar("sm_rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
 	g_Cvar_RevengeMultiplier = CreateConVar("sm_rtu_currency_on_revenge", "4", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
 
 	// Kills provide the player with a varying amount of currency
-	g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
 
 	// Objectives provide currency to the entire team
-	g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "250", "Amount of currency to give to team on point capture [250, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("sm_rtu_currency_on_capture_flag", "250", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "250.0", "Amount of currency to give to team on point capture [250, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("sm_rtu_currency_on_capture_flag", "250.0", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
 
     // Additional rules, disabled by default
-    g_Cvar_CurrencyDeathTax = CreateConVar("sm_rtu_currency_death_tax", "0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
-    g_Cvar_CurrencyOnDomination = CreateConVar("sm_rtu_currency_on_domination", "0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
+    g_Cvar_CurrencyDeathTax = CreateConVar("sm_rtu_currency_death_tax", "0.0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
+    g_Cvar_CurrencyOnDomination = CreateConVar("sm_rtu_currency_on_domination", "0.0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
 
     // TODO: implement
     // // Time-based currency gain. Off by default
@@ -93,6 +93,9 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 	if (eventType != 1) { return Plugin_Continue; } // 1 == capture
 
 	// TODO: Bonus currency for carrier?
+	// BUG: player is a name, not an id.
+	// TODO: There's no method to get id from name, we need to iterate over all connected clients to find it
+	// TODO: Double check all of our event data and event hooks to see if we made this mistake in other places
 	int player = event.GetInt("player");
 	int team = GetClientTeam(GetClientOfUserId(player));
 
@@ -171,11 +174,13 @@ void SetClientCurrency(int client, float amount) {
 }
 
 void SetCurrencyForAll(float amount) {
+	int count;
 	for (int i = 1; i <= MaxClients; i++) {
 		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
-
+		count++;
 		SetClientCurrency(i, amount);
 	}
+	PrintToChatAll("Set currency for %d players to %f", count, amount);
 }
 
 // Payment denied on suicide and other nonsense
@@ -221,16 +226,25 @@ float DeathPenalty(int victim) {
 }
 
 float CurrencyFromFlagCapture() {
-    return g_Cvar_CurrencyOnCaptureFlag.FloatValue
-         * g_Cvar_CurrencyMultiplier.FloatValue;
+    float val = g_Cvar_CurrencyOnCaptureFlag.FloatValue * g_Cvar_CurrencyMultiplier.FloatValue;
+	PrintToChatAll("Flag capture currency calculated as: %f", val);
+	return val;
+	// return g_Cvar_CurrencyOnCaptureFlag.FloatValue
+    //      * g_Cvar_CurrencyMultiplier.FloatValue;
 }
 
 float CurrencyFromPointCapture() {
-    return g_Cvar_CurrencyOnCapturePoint.FloatValue
-         * g_Cvar_CurrencyMultiplier.FloatValue;
+	float val =  g_Cvar_CurrencyOnCapturePoint.FloatValue * g_Cvar_CurrencyMultiplier.FloatValue;
+	PrintToChatAll("Point capture currency calculated as: %f", val);
+	return val;
+	// return g_Cvar_CurrencyOnCapturePoint.FloatValue
+    //      * g_Cvar_CurrencyMultiplier.FloatValue;
 }
 
 float StartingCurrency() {
-	return g_Cvar_CurrencyStarting.FloatValue
-		 * g_Cvar_CurrencyMultiplier.FloatValue;
+	float val =  g_Cvar_CurrencyStarting.FloatValue * g_Cvar_CurrencyMultiplier.FloatValue;
+	PrintToChatAll("Starting currency calculated as: %f", val);
+	return val;
+	// return g_Cvar_CurrencyStarting.FloatValue
+	// 	 * g_Cvar_CurrencyMultiplier.FloatValue;
 }

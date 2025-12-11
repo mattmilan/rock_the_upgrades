@@ -38,6 +38,7 @@ void PrecacheRequiredAssets() {
 }
 
 public void EnableUpgrades() {
+	PrintToChatAll("[SM] Attempting to Enable Upgrades");
 	if (UpgradesEnabled()) { return; }
 
 	SetCurrencyForAll(StartingCurrency());
@@ -48,8 +49,9 @@ public void EnableUpgrades() {
 }
 
 public void DisableUpgrades() {
+	PrintToChatAll("[SM] Attempting to Disable Upgrades");
 	if (!UpgradesEnabled()) { return; }
-	// TODO: Deactivation sounds, actually.
+
 	PlayDeactivationSound();
 	PrintToChatAll("[SM] %t", "RTU Disabled");
 	GameRules_SetProp("m_nForceUpgrades", 0, 4);
@@ -57,10 +59,12 @@ public void DisableUpgrades() {
 }
 
 void ResetUpgrades() {
+	PrintToChatAll("[SM] Attempting to Reset Upgrades");
+	if (!UpgradesEnabled()) { return; }
 	// TODO: SFX Explicitly for reset
 	PlayDeactivationSound();
 	PrintToChatAll("[SM] %t", "RTU Reset");
-	SetCurrencyForAll(0.0);
+	SetCurrencyForAll(StartingCurrency());
 	ClearPlayerAndItemUpgrades();
 }
 
@@ -93,7 +97,10 @@ void ClearPlayerAndItemUpgrades() {
 }
 
 public bool UpgradesEnabled() {
-	return GameRules_GetProp("m_nForceUpgrades") == 2;
+	int status = GameRules_GetProp("m_nForceUpgrades");
+	PrintToChatAll("Current upgrade status: %d", status);
+	return status == 2;
+	// return GameRules_GetProp("m_nForceUpgrades") == 2;
 }
 
 void RemoveUpgradeStations() {

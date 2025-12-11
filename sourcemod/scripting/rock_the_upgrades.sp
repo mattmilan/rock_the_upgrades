@@ -97,16 +97,20 @@ public void OnPluginEnd() {
 }
 
 public void OnClientConnected(int client) {
-	if (IsFakeClient(client)) { return; }
-
+	PrintToChatAll("[SM] OnClientConnected");
+	if (IsFakeClient(client)) { PrintToChatAll("  Client was fake!"); return; }
+	//PrintToChatAll("[SM] %t", "RTU Player Connected", PlayerCount + 1, VotesNeeded());
 	PlayerCount++;
+	PrintToChatAll("  PlayerCount %d", PlayerCount);
 }
 
 // NOTE: The vote might pass if a player disconnects without voting
 public void OnClientDisconnect(int client) {
-	if (IsFakeClient(client)) { return; }
+	PrintToChatAll("[SM] OnClientConnected");
+	if (IsFakeClient(client)) {  PrintToChatAll("  Client was fake!"); return; }
 
 	PlayerCount--;
+	PrintToChatAll("  PlayerCount %d", PlayerCount);
 	RemoveVote(client);
 	CountVotes();
 }
@@ -129,7 +133,7 @@ Action Command_RTU(int client, int args) {
 
 // Admin command - skip voting and enable immediately
 Action Command_RTUEnable(int client, int args) {
-	if (UpgradesEnabled()) { EnableUpgrades(); }
+	if (!UpgradesEnabled()) { EnableUpgrades(); }
 	else { ReplyToCommand(client, "[SM] %t", "RTU Already Enabled"); }
 
 	return Plugin_Handled;
@@ -177,6 +181,7 @@ void RegisterCommands() {
 
 // Add a vote and trigger a count
 void Vote(int client) {
+	PrintToChatAll("[SM] Vote called by %N", client);
 	if (!VotePossible(client)) { return; }
 
 	Votes.Push(client);
@@ -218,15 +223,15 @@ int VotesNeeded() {
 
 // Check if it's safe to vote
 bool VotePossible(int client) {
-	// No need to vote
-	if (UpgradesEnabled()) {
-		ReplyToCommand(client, "[SM] %t", "RTU Already Enabled");
-		return false;
-	}
-
 	// Too soon to vote
 	if (WaitingForPlayers) {
 		ReplyToCommand(client, "[SM] %t", "RTU Not Allowed");
+		return false;
+	}
+
+	// No need to vote
+	if (UpgradesEnabled()) {
+		ReplyToCommand(client, "[SM] %t", "RTU Already Enabled");
 		return false;
 	}
 
@@ -262,6 +267,7 @@ Action Event_PlayerUpgraded_Pre(Event event, const char[] name, bool dontBroadca
 		// Connect the unique event id with the userid. I will be impressed if this works
         char key[16];
         IntToString(event.GetInt("eventid"), key, sizeof(key));
+		PrintToChatAll("[SM] Player %N upgraded (PRE), userid %d, event id %s", client, userid, key);
         UsersWhoUpgraded.SetValue(key, userid);
     }
 
@@ -275,6 +281,7 @@ Action Event_PlayerUpgraded_Post(Event event, const char[] name, bool dontBroadc
 
     int userid;
     if (UsersWhoUpgraded.GetValue(key, userid)) {
+		PrintToChatAll("[SM] Player userid %d upgraded (POST), refilling ammo/metal", userid);
         TF2_RegeneratePlayer(userid);
         UsersWhoUpgraded.Remove(key);
     }
