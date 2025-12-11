@@ -16,12 +16,10 @@ ConVar g_Cvar_CurrencyOnDomination;
 // ConVar g_Cvar_UpgradeCostMultiplier;
 
 StringMap RevengeTracker;	// Bonus currency for revenge kills
-StringMap UsersWhoUpgraded;	// Refill ammo/metal on upgrade
 
 // Invoke during `OnPluginStart()`
 void InitCurrencyController() {
 	RevengeTracker = new StringMap();
-	UsersWhoUpgraded = new StringMap();
     InitCurrencyConVars();
     HookCurrencyEvents();
 }
@@ -29,7 +27,6 @@ void InitCurrencyController() {
 // Invoke during `OnPluginEnd()`
 void CloseCurrencyController() {
 	RevengeTracker.Close();
-	UsersWhoUpgraded.Close();
 }
 
 // Connect important game events to currency-gaining functions
@@ -51,7 +48,8 @@ void InitCurrencyConVars() {
 	g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
 
 	// Objectives provide currency to the entire team
-	g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "250.0", "Amount of currency to give to team on point capture [250, 0..]", 0, true, 0.0, false);
+	// NOTE: TF2 is already providing 100 currency on point capture. This plugin doesn't prevent that, but it will add a little extra
+	g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "150.0", "Amount of currency to give to team on point capture in addition to the built-in default 100 currency [150, 0..]", 0, true, 0.0, false);
 	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("sm_rtu_currency_on_capture_flag", "250.0", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
 
     // Additional rules, disabled by default
@@ -73,38 +71,33 @@ void InitCurrencyConVars() {
 Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int killer = GetClientOfUserId(event.GetInt("attacker"));
 	int victim = GetClientOfUserId(event.GetInt("userid"));
+
 	if (CleanKill(killer, victim)) { Reward(killer, victim) && Punish(victim); }
+
 	return Plugin_Continue;
 }
 
 // Capturing a point earns team currency
 Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
-	AddTeamCurrency(
-        event.GetInt("team"),
-        CurrencyFromPointCapture()
-    );
+	AddTeamCurrency(event.GetInt("team"), CurrencyFromPointCapture());
 
 	return Plugin_Continue;
 }
 
 // Capturing a flag earns team currency
 Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcast) {
-	int eventType = event.GetInt("eventtype");
-	if (eventType != 1) { return Plugin_Continue; } // 1 == capture
+	// MAGIC NUMBER: 2 is "captured"
+	if (event.GetInt("eventtype") != 2) { return Plugin_Continue; }
 
-	// TODO: Bonus currency for carrier?
-	// BUG: player is a name, not an id.
-	// TODO: There's no method to get id from name, we need to iterate over all connected clients to find it
-	// TODO: Double check all of our event data and event hooks to see if we made this mistake in other places
-	int player = event.GetInt("player");
-	int team = GetClientTeam(GetClientOfUserId(player));
+	// MAGIC NUMBER: 2 is RED, 3 is BLU
+	int capturingTeam = (event.GetInt("team") == 2) ? 3 : 2;
 
-	AddTeamCurrency(team, CurrencyFromFlagCapture());
+	AddTeamCurrency(capturingTeam, CurrencyFromFlagCapture());
 
 	return Plugin_Continue;
 }
 
-// Dominations earn bonus currency (disabled by default), and provide data for revenge kills
+// Dominations earn bonus currency (disabled by default) and provide data for revenge kills
 Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
 	// Handle domination
     int dominator = GetClientOfUserId(event.GetInt("dominator"));
@@ -141,7 +134,7 @@ void AddClientCurrency(int client, float amount) {
 // Add an arbitrary float value to all clients on a team
 void AddTeamCurrency(int team, float amount) {
 	for (int i = 1; i <= MaxClients; i++) {
-		if (GetClientTeam(i) != team) { continue; }
+		if (!IsClientInGame(i) || GetClientTeam(i) != team) { continue; }
 
 		AddClientCurrency(i, amount);
 	}
@@ -164,8 +157,7 @@ stock void SubtractTeamCurrency(int team, float amount) {
 
 // Get a client's currency value as float
 float GetClientCurrency(int client) {
-    int clientCurrency = GetEntProp(client, Prop_Send, "m_nCurrency");
-	return float(clientCurrency);
+    return float(GetEntProp(client, Prop_Send, "m_nCurrency"));
 }
 
 // Set client currency to an arbitrary integer, rounded up from float
@@ -174,13 +166,11 @@ void SetClientCurrency(int client, float amount) {
 }
 
 void SetCurrencyForAll(float amount) {
-	int count;
 	for (int i = 1; i <= MaxClients; i++) {
 		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
-		count++;
+
 		SetClientCurrency(i, amount);
 	}
-	PrintToChatAll("Set currency for %d players to %f", count, amount);
 }
 
 // Payment denied on suicide and other nonsense
@@ -226,25 +216,16 @@ float DeathPenalty(int victim) {
 }
 
 float CurrencyFromFlagCapture() {
-    float val = g_Cvar_CurrencyOnCaptureFlag.FloatValue * g_Cvar_CurrencyMultiplier.FloatValue;
-	PrintToChatAll("Flag capture currency calculated as: %f", val);
-	return val;
-	// return g_Cvar_CurrencyOnCaptureFlag.FloatValue
-    //      * g_Cvar_CurrencyMultiplier.FloatValue;
+	return g_Cvar_CurrencyOnCaptureFlag.FloatValue
+         * g_Cvar_CurrencyMultiplier.FloatValue;
 }
 
 float CurrencyFromPointCapture() {
-	float val =  g_Cvar_CurrencyOnCapturePoint.FloatValue * g_Cvar_CurrencyMultiplier.FloatValue;
-	PrintToChatAll("Point capture currency calculated as: %f", val);
-	return val;
-	// return g_Cvar_CurrencyOnCapturePoint.FloatValue
-    //      * g_Cvar_CurrencyMultiplier.FloatValue;
+	return g_Cvar_CurrencyOnCapturePoint.FloatValue
+         * g_Cvar_CurrencyMultiplier.FloatValue;
 }
 
 float StartingCurrency() {
-	float val =  g_Cvar_CurrencyStarting.FloatValue * g_Cvar_CurrencyMultiplier.FloatValue;
-	PrintToChatAll("Starting currency calculated as: %f", val);
-	return val;
-	// return g_Cvar_CurrencyStarting.FloatValue
-	// 	 * g_Cvar_CurrencyMultiplier.FloatValue;
+	return g_Cvar_CurrencyStarting.FloatValue
+		 * g_Cvar_CurrencyMultiplier.FloatValue;
 }

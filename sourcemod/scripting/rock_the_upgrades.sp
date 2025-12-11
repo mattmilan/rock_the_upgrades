@@ -6,17 +6,19 @@
  * Starts a vote.
  *
  * If the vote passes, enables the upgrade system and adds an upgrade station to
- * every resupply locker for the current map
+ * every resupply locker for the current map and activates various configurable
+ * strategies for gaining currency.
  *
- * Borrows heavily from the original `Rock The Vote` plugin by AlliedModders LLC
+ * Functionality inspired by MvM and the community map "Freaky Fair"
  *
- * NOTE: func_upgradestation must have an arbitrary model set or it will not
- *       open/close the upgrades menu when players enter/exit its bounding box.
- *		 The resupply locker model is a good candidate for this, but it's not
- *       garunteed - some maps use an alternate model, so we will check this and
- *       precache when necessary
+ * Voting portion inspired by AlliedModder's RTV SourceMod Plugin
+ * https://github.com/alliedmodders/sourcemod/blob/master/plugins/rockthevote.sp
  *
- * TODO: Revert currency/upgrades on map extension
+ * Depends on https://github.com/FlaminSarge/tf2attributes to revert upgrades
+ *
+ * Originally developed for the Bangerz.tf community and designed for the
+ * Engineer Fortress game mode. Big thanks to Dynamilk who was a huge help with
+ * both development and testing.
  *
  * =============================================================================
  *
@@ -53,7 +55,7 @@
 // Simplify upgrade cleanup during multi-stage transitions
 #include <tf2attributes>
 
-// Manages the state of the upgrade system and access to upgrade stations
+// Enable/Disable upgrade system, and easily reset entity upgrades
 #include <rtu/toggle_upgrades>
 
 // Manages configurable currency gains and losses across various events
@@ -77,7 +79,6 @@ bool WaitingForPlayers; 	// Disallows voting while "Waiting for Players"
 int PlayerCount;			// Number of connected clients (excluding bots)
 ArrayList Votes;			// List of clients who have voted
 
-
 public void OnPluginStart() {
 	Votes = new ArrayList();
 	PrecacheRequiredAssets();
@@ -97,20 +98,16 @@ public void OnPluginEnd() {
 }
 
 public void OnClientConnected(int client) {
-	PrintToChatAll("[SM] OnClientConnected");
-	if (IsFakeClient(client)) { PrintToChatAll("  Client was fake!"); return; }
-	//PrintToChatAll("[SM] %t", "RTU Player Connected", PlayerCount + 1, VotesNeeded());
+	if (IsFakeClient(client)) { return; }
+
 	PlayerCount++;
-	PrintToChatAll("  PlayerCount %d", PlayerCount);
 }
 
 // NOTE: The vote might pass if a player disconnects without voting
 public void OnClientDisconnect(int client) {
-	PrintToChatAll("[SM] OnClientConnected");
-	if (IsFakeClient(client)) {  PrintToChatAll("  Client was fake!"); return; }
+	if (IsFakeClient(client)) { return; }
 
 	PlayerCount--;
-	PrintToChatAll("  PlayerCount %d", PlayerCount);
 	RemoveVote(client);
 	CountVotes();
 }
@@ -156,19 +153,17 @@ Action Command_RTUReset(int client, int args) {
 }
 
 void HookEvents() {
-	// MULTI-STAGE RESETS
-	HookEvent("teamplay_win_panel", Event_TeamplayWinPanel, EventHookMode_Post);
+	HookEvent("teamplay_round_start", Event_TeamplayRoundStart, EventHookMode_Post);
+}
 
-	// REFILL AMMO/METAL ON UPGRADE
-	HookEvent("player_upgraded", Event_PlayerUpgraded_Pre, EventHookMode_Pre);
-    HookEvent("player_upgraded", Event_PlayerUpgraded_Post, EventHookMode_Post);
+Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
+	if (g_Cvar_MultiStageReset.IntValue == 1)  { ResetUpgrades(); }
+
+	return Plugin_Continue;
 }
 
 void InitConvars() {
-	// Voting behavior
 	g_Cvar_VoteThreshold = CreateConVar("sm_rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
-
-	// Upgrades behavior
 	g_Cvar_MultiStageReset = CreateConVar("sm_rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
 }
 
@@ -181,7 +176,6 @@ void RegisterCommands() {
 
 // Add a vote and trigger a count
 void Vote(int client) {
-	PrintToChatAll("[SM] Vote called by %N", client);
 	if (!VotePossible(client)) { return; }
 
 	Votes.Push(client);
@@ -242,49 +236,4 @@ bool VotePossible(int client) {
 	}
 
 	return true;
-}
-
-Action Event_TeamplayWinPanel(Event event, const char[] name, bool dontBroadcast) {
-	// Bail if we're configured to not reset
-	if (g_Cvar_MultiStageReset.IntValue == 0)  { return Plugin_Continue; }
-
-	// Bail if the round is complete
-	if (GetEventInt(event, "round_complete") == 1) { return Plugin_Continue; }
-
-	// Bail if BLU lost
-	if (GetEventInt(event, "winning_team") != 3) { return Plugin_Continue; }
-
-	ResetUpgrades();
-	return Plugin_Continue;
-}
-
-// `player_upgraded` is the event we need to hook as we want to fire some logic immediately after an upgrade is purchased
-Action Event_PlayerUpgraded_Pre(Event event, const char[] name, bool dontBroadcast) {
-    int client = GetClientOfUserId(event.GetInt("player"));
-    if (client > 0 && IsClientInGame(client)) {
-        int userid = GetClientUserId(client);
-
-		// Connect the unique event id with the userid. I will be impressed if this works
-        char key[16];
-        IntToString(event.GetInt("eventid"), key, sizeof(key));
-		PrintToChatAll("[SM] Player %N upgraded (PRE), userid %d, event id %s", client, userid, key);
-        UsersWhoUpgraded.SetValue(key, userid);
-    }
-
-    return Plugin_Continue;
-}
-
-// if the above pre_hook works then we will catch the player id which we need to refill their increased ammo capacity
-Action Event_PlayerUpgraded_Post(Event event, const char[] name, bool dontBroadcast) {
-    char key[16];
-    IntToString(event.GetInt("eventid"), key, sizeof(key));
-
-    int userid;
-    if (UsersWhoUpgraded.GetValue(key, userid)) {
-		PrintToChatAll("[SM] Player userid %d upgraded (POST), refilling ammo/metal", userid);
-        TF2_RegeneratePlayer(userid);
-        UsersWhoUpgraded.Remove(key);
-    }
-
-    return Plugin_Continue;
 }
