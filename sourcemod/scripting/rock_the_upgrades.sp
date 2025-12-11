@@ -129,19 +129,25 @@ Action Command_RTU(int client, int args) {
 
 // Admin command - skip voting and enable immediately
 Action Command_RTUEnable(int client, int args) {
-	EnableUpgrades();
+	if (UpgradesEnabled()) { EnableUpgrades(); }
+	else { ReplyToCommand(client, "[SM] %t", "RTU Already Enabled"); }
+
 	return Plugin_Handled;
 }
 
 // Admin command - disable immediately
 Action Command_RTUDisable(int client, int args) {
-	DisableUpgrades();
+	if (UpgradesEnabled()) { DisableUpgrades(); }
+	else { ReplyToCommand(client, "[SM] %t", "RTU Not Enabled"); }
+
 	return Plugin_Handled;
 }
 
 // Admin command - revert all gains without disabling the upgrade system
 Action Command_RTUReset(int client, int args) {
-	ResetUpgrades();
+	if (UpgradesEnabled()) { ResetUpgrades(); }
+	else { ReplyToCommand(client, "[SM] %t", "RTU Not Enabled"); }
+
 	return Plugin_Handled;
 }
 
@@ -202,7 +208,7 @@ void CountVotes() {
 	// Insufficient votes
 	if (Votes.Length < VotesNeeded()) { return; }
 
-	EnableUpgrades() && DistributeStartingCurrency();
+	EnableUpgrades();
 }
 
 // Get required number of votes from a percentage of connected player count. Ensure a minimum of 1 to prevent unintended activation
@@ -231,31 +237,6 @@ bool VotePossible(int client) {
 	}
 
 	return true;
-}
-
-
-/* GAME STATE HELPERS */
-
-void ResetUpgrades() {
-	ClearCurrency();
-	ClearUpgrades();
-}
-
-
-void ClearCurrency() {
-	for (int i = 1; i <= MaxClients; i++) {
-		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
-		SetClientCurrency(i, 0.0);
-	}
-}
-
-void ClearUpgrades() {
-	for (int i = 1; i <= MaxClients; i++) {
-		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
-
-		TF2Attrib_RemoveAll(i);
-		// TODO: iterate over player weapons
-	}
 }
 
 Action Event_TeamplayWinPanel(Event event, const char[] name, bool dontBroadcast) {

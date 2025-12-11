@@ -1,4 +1,8 @@
 "Phrases" {
+	"RTU Not Enabled" {
+		"en"			"Upgrades are not currently enabled!"
+	}
+
 	"RTU Already Enabled" {
 		"en"			"Upgrades are already enabled!"
 	}
@@ -13,7 +17,11 @@
 	}
 
 	"RTU Disabled" {
-		"en"			"Disabling upgrades due to map change or extension"
+		"en"			"Upgrades have been disabled!"
+	}
+
+	"RTU Reset" {
+		"en"			"Upgrades and currency have been reset!"
 	}
 
 	"RTU Not Allowed" {

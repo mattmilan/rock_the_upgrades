@@ -93,8 +93,8 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 	if (eventType != 1) { return Plugin_Continue; } // 1 == capture
 
 	// TODO: Bonus currency for carrier?
-	int carrier = event.GetInt("carrier");
-	int team = GetClientTeam(GetClientOfUserId(carrier));
+	int player = event.GetInt("player");
+	int team = GetClientTeam(GetClientOfUserId(player));
 
 	AddTeamCurrency(team, CurrencyFromFlagCapture());
 
@@ -143,18 +143,6 @@ void AddTeamCurrency(int team, float amount) {
 		AddClientCurrency(i, amount);
 	}
 }
-void DistributeStartingCurrency() {
-	for (int i = 1; i <= MaxClients; i++) {
-		if (IsFakeClient(i)) { continue; }
-
-		AddClientCurrency(i, StartingCurrency());
-	}
-}
-
-float StartingCurrency() {
-	return g_Cvar_CurrencyStarting.FloatValue
-		 * g_Cvar_CurrencyMultiplier.FloatValue;
-}
 
 // Subtract an arbitrary float value from a client's currency
 void SubtractClientCurrency(int client, float amount) {
@@ -182,6 +170,19 @@ void SetClientCurrency(int client, float amount) {
 	SetEntProp(client, Prop_Send, "m_nCurrency", RoundToCeil(amount));
 }
 
+void SetCurrencyForAll(float amount) {
+	for (int i = 1; i <= MaxClients; i++) {
+		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
+
+		SetClientCurrency(i, amount);
+	}
+}
+
+// Payment denied on suicide and other nonsense
+bool CleanKill(int killer, int victim) {
+    return killer && killer != victim;
+}
+
 // Revenge kills trigger a bonus multiplier
 bool RevengeKill(int killer, int victim) {
 	char dominatedName[MAX_NAME_LENGTH];   GetClientName(killer, dominatedName, sizeof(dominatedName));
@@ -191,11 +192,6 @@ bool RevengeKill(int killer, int victim) {
 	if (!StrEqual(dominatorName, storedDominator)) { return false; }
 
     return RevengeTracker.Remove(dominatedName);
-}
-
-// Payment denied on suicide and other nonsense
-bool CleanKill(int killer, int victim) {
-    return killer && killer != victim;
 }
 
 // Returns a ConVar-defined float or 1 (which will have no effect)
@@ -232,4 +228,9 @@ float CurrencyFromFlagCapture() {
 float CurrencyFromPointCapture() {
     return g_Cvar_CurrencyOnCapturePoint.FloatValue
          * g_Cvar_CurrencyMultiplier.FloatValue;
+}
+
+float StartingCurrency() {
+	return g_Cvar_CurrencyStarting.FloatValue
+		 * g_Cvar_CurrencyMultiplier.FloatValue;
 }
