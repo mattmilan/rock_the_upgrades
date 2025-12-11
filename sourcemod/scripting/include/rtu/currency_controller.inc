@@ -1,0 +1,235 @@
+ConVar g_Cvar_CurrencyStarting;
+ConVar g_Cvar_CurrencyMultiplier;
+ConVar g_Cvar_CurrencyOnKillMin;
+ConVar g_Cvar_CurrencyOnKillMax;
+ConVar g_Cvar_CurrencyDeathTax;
+ConVar g_Cvar_RevengeMultiplier;
+ConVar g_Cvar_CurrencyOnCapturePoint;
+ConVar g_Cvar_CurrencyOnCaptureFlag;
+ConVar g_Cvar_CurrencyOnDomination;
+
+// TODO: implement
+// ConVar g_Cvar_CurrencyOverTime;
+// ConVar g_Cvar_CurrencyOverTimeRate;
+// ConVar g_Cvar_CurrencyOverTimeFrequency;
+// ConVar g_Cvar_CurrencyLimit;
+// ConVar g_Cvar_UpgradeCostMultiplier;
+
+StringMap RevengeTracker;	// Bonus currency for revenge kills
+StringMap UsersWhoUpgraded;	// Refill ammo/metal on upgrade
+
+// Invoke during `OnPluginStart()`
+void InitCurrencyController() {
+	RevengeTracker = new StringMap();
+	UsersWhoUpgraded = new StringMap();
+    InitCurrencyConVars();
+    HookCurrencyEvents();
+}
+
+// Invoke during `OnPluginEnd()`
+void CloseCurrencyController() {
+	RevengeTracker.Close();
+	UsersWhoUpgraded.Close();
+}
+
+// Connect important game events to currency-gaining functions
+void HookCurrencyEvents() {
+	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
+	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
+	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
+	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
+}
+
+void InitCurrencyConVars() {
+	// Currency rules and modifiers, with reasonable defaults
+	g_Cvar_CurrencyStarting = CreateConVar("sm_rtu_currency_starting", "250", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
+	g_Cvar_CurrencyMultiplier = CreateConVar("sm_rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
+	g_Cvar_RevengeMultiplier = CreateConVar("sm_rtu_currency_on_revenge", "4", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
+
+	// Kills provide the player with a varying amount of currency
+	g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
+
+	// Objectives provide currency to the entire team
+	g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "250", "Amount of currency to give to team on point capture [250, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("sm_rtu_currency_on_capture_flag", "250", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
+
+    // Additional rules, disabled by default
+    g_Cvar_CurrencyDeathTax = CreateConVar("sm_rtu_currency_death_tax", "0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
+    g_Cvar_CurrencyOnDomination = CreateConVar("sm_rtu_currency_on_domination", "0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
+
+    // TODO: implement
+    // // Time-based currency gain. Off by default
+	// g_Cvar_CurrencyOverTime = CreateConVar("sm_rtu_currency_over_time", "0", "Enable or disable time-based currency gain [0, 0,1]", 0, true, 0.0, true, 1.0);
+	// g_Cvar_CurrencyOverTimeRate = CreateConVar("sm_rtu_currency_over_time_rate", "5", "Amount of currency earned per tick [5, 1..]", 0, true, 1.0, false);
+	// g_Cvar_CurrencyOverTimeFrequency = CreateConVar("sm_rtu_currency_over_time_frequency", "30", "Frequency of time-based currency gain [30, 15..]", 0, true, 15.0, false);
+	//
+    // // Difficulty modifiers
+	// g_Cvar_UpgradeCostMultiplier = CreateConVar("sm_rtu_upgrade_cost_multiplier", "1.0", "Multiplier for upgrade costs when RTU is activated. A value of zero provides free upgrades [1, 0..].", 0, true, 0.0, false);
+	// g_Cvar_CurrencyLimit = CreateConVar("sm_rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
+}
+
+// Kills earn currency
+Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
+	int killer = GetClientOfUserId(event.GetInt("attacker"));
+	int victim = GetClientOfUserId(event.GetInt("userid"));
+	if (CleanKill(killer, victim)) { Reward(killer, victim) && Punish(victim); }
+	return Plugin_Continue;
+}
+
+// Capturing a point earns team currency
+Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
+	AddTeamCurrency(
+        event.GetInt("team"),
+        CurrencyFromPointCapture()
+    );
+
+	return Plugin_Continue;
+}
+
+// Capturing a flag earns team currency
+Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcast) {
+	int eventType = event.GetInt("eventtype");
+	if (eventType != 1) { return Plugin_Continue; } // 1 == capture
+
+	// TODO: Bonus currency for carrier?
+	int carrier = event.GetInt("carrier");
+	int team = GetClientTeam(GetClientOfUserId(carrier));
+
+	AddTeamCurrency(team, CurrencyFromFlagCapture());
+
+	return Plugin_Continue;
+}
+
+// Dominations earn bonus currency (disabled by default), and provide data for revenge kills
+Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
+	// Handle domination
+    int dominator = GetClientOfUserId(event.GetInt("dominator"));
+	int dominated = GetClientOfUserId(event.GetInt("dominated"));
+	AddClientCurrency(dominator, CurrencyOnDomination());
+
+	// Track revenge
+	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
+	char dominatedName[MAX_NAME_LENGTH]; GetClientName(dominated, dominatedName, sizeof(dominatedName));
+	RevengeTracker.SetString(dominatedName, dominatorName);
+
+	return Plugin_Continue;
+}
+
+// Killers gain currency
+void Reward(int killer, int victim) {
+    float reward = CurrencyOnKill() * RevengeMultiplier(killer, victim)
+	AddClientCurrency(killer, reward);
+}
+
+// Slain players lose currency (disabled by default)
+void Punish(int victim) {
+	SubtractClientCurrency(victim, DeathPenalty(victim));
+}
+
+// Add an arbitrary float value to a client's currency
+void AddClientCurrency(int client, float amount) {
+    if (!IsClientInGame(client) || IsFakeClient(client)) { return; }
+
+    float newBalance = GetClientCurrency(client) + amount;
+	SetClientCurrency(client, newBalance);
+}
+
+// Add an arbitrary float value to all clients on a team
+void AddTeamCurrency(int team, float amount) {
+	for (int i = 1; i <= MaxClients; i++) {
+		if (GetClientTeam(i) != team) { continue; }
+
+		AddClientCurrency(i, amount);
+	}
+}
+void DistributeStartingCurrency() {
+	for (int i = 1; i <= MaxClients; i++) {
+		if (IsFakeClient(i)) { continue; }
+
+		AddClientCurrency(i, StartingCurrency());
+	}
+}
+
+float StartingCurrency() {
+	return g_Cvar_CurrencyStarting.FloatValue
+		 * g_Cvar_CurrencyMultiplier.FloatValue;
+}
+
+// Subtract an arbitrary float value from a client's currency
+void SubtractClientCurrency(int client, float amount) {
+    float newBalance = GetClientCurrency(client) - amount;
+    SetClientCurrency(client, newBalance);
+}
+
+// unused but included for consistency
+stock void SubtractTeamCurrency(int team, float amount) {
+    for (int i = 1; i <= MaxClients; i++) {
+        if (GetClientTeam(i) != team) { continue; }
+
+        SubtractClientCurrency(i, amount);
+    }
+}
+
+// Get a client's currency value as float
+float GetClientCurrency(int client) {
+    int clientCurrency = GetEntProp(client, Prop_Send, "m_nCurrency");
+	return float(clientCurrency);
+}
+
+// Set client currency to an arbitrary integer, rounded up from float
+void SetClientCurrency(int client, float amount) {
+	SetEntProp(client, Prop_Send, "m_nCurrency", RoundToCeil(amount));
+}
+
+// Revenge kills trigger a bonus multiplier
+bool RevengeKill(int killer, int victim) {
+	char dominatedName[MAX_NAME_LENGTH];   GetClientName(killer, dominatedName, sizeof(dominatedName));
+	char dominatorName[MAX_NAME_LENGTH];   GetClientName(victim, dominatorName, sizeof(dominatorName));
+	char storedDominator[MAX_NAME_LENGTH]; RevengeTracker.GetString(dominatedName, storedDominator, sizeof(storedDominator));
+
+	if (!StrEqual(dominatorName, storedDominator)) { return false; }
+
+    return RevengeTracker.Remove(dominatedName);
+}
+
+// Payment denied on suicide and other nonsense
+bool CleanKill(int killer, int victim) {
+    return killer && killer != victim;
+}
+
+// Returns a ConVar-defined float or 1 (which will have no effect)
+float RevengeMultiplier(int killer, int victim) {
+    return RevengeKill(killer, victim) ?
+        g_Cvar_RevengeMultiplier.FloatValue : 1.0;
+}
+
+// Returns a random float clamped and multiplied by ConVars
+float CurrencyOnKill() {
+    return GetRandomFloat(
+        g_Cvar_CurrencyOnKillMin.FloatValue,
+        g_Cvar_CurrencyOnKillMax.FloatValue
+    ) * g_Cvar_CurrencyMultiplier.FloatValue;
+}
+
+// Dominations earn a bonus (disabled by default)
+float CurrencyOnDomination() {
+    return g_Cvar_CurrencyOnDomination.FloatValue
+         * g_Cvar_CurrencyMultiplier.FloatValue;
+}
+
+// Dying may incur a penalty (disabled by default)
+float DeathPenalty(int victim) {
+    return GetClientCurrency(victim)
+         * g_Cvar_CurrencyDeathTax.FloatValue;
+}
+
+float CurrencyFromFlagCapture() {
+    return g_Cvar_CurrencyOnCaptureFlag.FloatValue
+         * g_Cvar_CurrencyMultiplier.FloatValue;
+}
+
+float CurrencyFromPointCapture() {
+    return g_Cvar_CurrencyOnCapturePoint.FloatValue
+         * g_Cvar_CurrencyMultiplier.FloatValue;
+}

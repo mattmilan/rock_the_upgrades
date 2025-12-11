@@ -1,8 +1,54 @@
-// Primary method, called by plugin
+ArrayList SFX;
+// Wierd hack that's required for upgrade stations to function
+void PrecacheRequiredAssets() {
+    char g_ArbitraryModel[] = "models/props_gameplay/resupply_locker.mdl";
+    if (!IsModelPrecached(g_ArbitraryModel)) {	PrecacheModel(g_ArbitraryModel, true); }
+
+    SFX = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+
+    SFX.PushString("mvm/mvm_bought_in.wav");
+    SFX.PushString("vo/engineer_mvm_collect_credits01.mp3");
+    SFX.PushString("vo/heavy_mvm_collect_credits01.mp3");
+    SFX.PushString("vo/medic_mvm_collect_credits03.mp3");
+    SFX.PushString("vo/medic_mvm_collect_credits04.mp3");
+    SFX.PushString("vo/soldier_mvm_collect_credits01.mp3");
+    SFX.PushString("vo/soldier_mvm_collect_credits02.mp3");
+
+    // Precache all sounds
+    for (int i = 0; i < SFX.Length; i++) {
+        char sound[PLATFORM_MAX_PATH];
+        SFX.GetString(i, sound, sizeof(sound));
+        PrecacheSound(sound, true);
+    }
+}
+
 public void EnableUpgrades() {
+	if (UpgradesEnabled()) { return; }
+
+	PlayActivationSound();
 	PrintToChatAll("[SM] %t", "RTU Enabled");
 	GameRules_SetProp("m_nForceUpgrades", 2, 4);
 	SpawnUpgradeStations();
+}
+
+public void DisableUpgrades() {
+	if (!UpgradesEnabled()) { return; }
+	// TODO: play deactivation sound
+	PrintToChatAll("[SM] %t", "RTU Disabled");
+	GameRules_SetProp("m_nForceUpgrades", 0, 0);
+	RemoveUpgradeStations();
+}
+
+public bool UpgradesEnabled() {
+	int val = GameRules_GetProp("m_nForceUpgrades", 2);
+	return (val == 4);
+}
+
+void RemoveUpgradeStations() {
+	int entity = -1;
+	while ((entity = FindEntityByClassname(entity, "func_upgradestation")) != -1) {
+		RemoveEntity(entity);
+	}
 }
 
 void SpawnUpgradeStations() {
@@ -53,4 +99,12 @@ void GetCenter(float mins[3], float maxs[3], float center[3]) {
 	SubtractVectors(maxs, mins, center);
 	ScaleVector(center, 0.5);
 	AddVectors(mins, center, center);
+}
+
+
+void PlayActivationSound() {
+	int rand = GetRandomInt(0, SFX.Length - 1)
+	char sound[PLATFORM_MAX_PATH];
+	SFX.GetString(rand, sound, sizeof(sound));
+	EmitSoundToAll(sound);
 }
