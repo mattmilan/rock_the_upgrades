@@ -53,15 +53,17 @@ public void DisableUpgrades() {
 
 	PrintToChatAll("[SM] %t", "RTU Disabled");
 	PlayRandomSoundFrom(SFX_Disable);
+	ResetUpgrades(.silent = true)
 	GameRules_SetProp("m_nForceUpgrades", 0, 4);
 	RemoveUpgradeStations();
 }
 
-void ResetUpgrades() {
+void ResetUpgrades(bool silent = false) {
 	// This is also being checked and reported upstream
 	if (!UpgradesEnabled()) { return; }
 
-	PrintToChatAll("[SM] %t", "RTU Reset");
+	if (!silent) { PrintToChatAll("[SM] %t", "RTU Reset"); }
+
 	SetCurrencyForAll(StartingCurrency());
 	ClearPlayerAndItemUpgrades();
 }
@@ -73,8 +75,7 @@ void ClearPlayerAndItemUpgrades() {
 		// Clear player upgrades
 		TF2Attrib_RemoveAll(i);
 
-		// Clear player's weapon upgrades
-		// MAGIC NUMBER 5: number of weapon slots we care about (Excludes last two)
+		// Clear weapon upgrades
 		int weaponSlots = 5;
 		for (int j = 0; j < weaponSlots; j++) {
 			int weapon = GetPlayerWeaponSlot(i, j);
@@ -82,6 +83,9 @@ void ClearPlayerAndItemUpgrades() {
 
 			TF2Attrib_RemoveAll(weapon);
 		}
+
+		// Remove lingering effects of upgrades
+		TF2_RegeneratePlayer(i);
 	}
 }
 
