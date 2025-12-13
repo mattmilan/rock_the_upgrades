@@ -2,6 +2,7 @@ ConVar g_Cvar_CurrencyStarting;
 ConVar g_Cvar_CurrencyMultiplier;
 ConVar g_Cvar_CurrencyOnKillMin;
 ConVar g_Cvar_CurrencyOnKillMax;
+ConVar g_Cvar_CurrencyOnObjectDestroyed;
 ConVar g_Cvar_CurrencyDeathTax;
 ConVar g_Cvar_RevengeMultiplier;
 ConVar g_Cvar_CurrencyOnCapturePoint;
@@ -32,6 +33,7 @@ void CloseCurrencyController() {
 // Connect important game events to currency-gaining functions
 void HookCurrencyEvents() {
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
+	HookEvent("object_destroyed", Event_ObjectDestroyed, EventHookMode_Post);
 	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
 	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
 	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
@@ -46,6 +48,9 @@ void InitCurrencyConVars() {
 	// Kills provide the player with a varying amount of currency
 	g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
 	g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
+
+	// Engineer Buildings (Objects) provide increasing currency depending on state
+	g_Cvar_CurrencyOnObjectDestroyed = CreateConVar("sm_rtu_currency_on_object_destroyed", "5.0", "Base amount of currency to give to players on building destruction, multiplied by building level [5, 0..]", 0, true, 0.0, false);
 
 	// Objectives provide currency to the entire team
 	// NOTE: TF2 is already providing 100 currency on point capture. This plugin doesn't prevent that, but it will add a little extra
@@ -88,6 +93,23 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	return Plugin_Continue;
 }
 
+Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast) {
+	// Optional SFX for destruction of buildings still being built
+	if (event.GetBool("was_building")) { ObjectDenied(event); }
+
+	AddClientCurrency(
+		event.GetInt("attacker"),
+		CurrencyForDestroyedObject(event)
+	);
+
+	AddClientCurrency(
+		event.GetInt("assister"),
+		CurrencyForDestroyedObject(event)
+	);
+
+	return Plugin_Continue;
+}
+
 // Capturing a point earns team currency
 Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
 	AddTeamCurrency(event.GetInt("team"), CurrencyFromPointCapture());
@@ -121,6 +143,27 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	RevengeTracker.SetString(dominatedName, dominatorName);
 
 	return Plugin_Continue;
+}
+
+// Play SFX when buildings are destroyed while being built
+void ObjectDenied(Event event) {
+	int builder = event.GetInt("userid");
+	int attacker = event.GetInt("attacker");
+	int assister = event.GetInt("assister");
+
+	if (IsClientInGame(builder))  EmitGameSoundToClient(builder,  "vo/engineer_no01.wav");
+	if (IsClientInGame(attacker)) EmitGameSoundToClient(attacker, "vo/engineer_gunslingerpunch02.wav");
+	if (IsClientInGame(assister)) EmitGameSoundToClient(assister, "vo/engineer_gunslingerpunch02.wav");
+}
+
+// higher level buildings yield more currency
+float CurrencyForDestroyedObject(Event event) {
+	int objectIndex = event.GetInt("index");
+	int upgradeLevel = GetEntProp(objectIndex, Prop_Send, "m_iUpgradeLevel");
+
+	return upgradeLevel
+		 * g_Cvar_CurrencyOnObjectDestroyed.FloatValue
+		 * g_Cvar_CurrencyMultiplier.FloatValue;
 }
 
 // Add an arbitrary float value to a client's currency
