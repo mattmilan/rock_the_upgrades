@@ -138,8 +138,12 @@ Action Command_RTUEnable(int client, int args) {
 
 // Admin command - disable immediately
 Action Command_RTUDisable(int client, int args) {
-	if (UpgradesEnabled()) { DisableUpgrades(); }
-	else { ReplyToCommand(client, "[SM] %t", "RTU Not Enabled"); }
+	if (UpgradesEnabled()) {
+		Votes.Clear();
+		DisableUpgrades();
+	} else {
+		ReplyToCommand(client, "[SM] %t", "RTU Not Enabled");
+	}
 
 	return Plugin_Handled;
 }
