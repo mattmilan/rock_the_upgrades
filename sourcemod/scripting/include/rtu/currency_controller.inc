@@ -43,7 +43,7 @@ void InitCurrencyConVars() {
 	// Currency rules and modifiers, with reasonable defaults
 	g_Cvar_CurrencyStarting = CreateConVar("sm_rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
 	g_Cvar_CurrencyMultiplier = CreateConVar("sm_rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
-	g_Cvar_RevengeMultiplier = CreateConVar("sm_rtu_currency_on_revenge", "4", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
+	g_Cvar_RevengeMultiplier = CreateConVar("sm_rtu_currency_on_revenge", "4.0", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
 
 	// Kills provide the player with a varying amount of currency
 	g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
@@ -122,10 +122,9 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 	// MAGIC NUMBER: 2 is "captured"
 	if (event.GetInt("eventtype") != 2) { return Plugin_Continue; }
 
-	// MAGIC NUMBER: 2 is RED, 3 is BLU
-	int capturingTeam = (event.GetInt("team") == 2) ? 3 : 2;
-
-	AddTeamCurrency(capturingTeam, CurrencyFromFlagCapture());
+	int player = event.GetInt("player");
+	int team = GetClientTeam(player);
+	AddTeamCurrency(team, CurrencyFromFlagCapture());
 
 	return Plugin_Continue;
 }
@@ -133,8 +132,8 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 // Dominations earn bonus currency (disabled by default) and provide data for revenge kills
 Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
 	// Handle domination
-    int dominator = GetClientOfUserId(event.GetInt("dominator"));
-	int dominated = GetClientOfUserId(event.GetInt("dominated"));
+    int dominator = event.GetInt("dominator");
+	int dominated = event.GetInt("dominated");
 	AddClientCurrency(dominator, CurrencyOnDomination());
 
 	// Track revenge
