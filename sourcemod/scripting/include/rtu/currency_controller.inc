@@ -70,9 +70,20 @@ void InitCurrencyConVars() {
 // Kills earn currency
 Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int killer = GetClientOfUserId(event.GetInt("attacker"));
+	int assister = GetClientOfUserId(event.GetInt("assister"));
 	int victim = GetClientOfUserId(event.GetInt("userid"));
 
-	if (CleanKill(killer, victim)) { Reward(killer, victim) && Punish(victim); }
+	if (Suicide(killer, victim)) { return Plugin_Continue; }
+
+	bool revenge = RevengeKill(killer, victim)
+				|| RevengeKill(assister, victim);
+
+	float reward = CurrencyOnKill(revenge);
+
+	AddClientCurrency(killer, reward);
+	AddClientCurrency(assister, reward);
+
+	SubtractClientCurrency(victim, DeathPenalty(victim));
 
 	return Plugin_Continue;
 }
@@ -110,17 +121,6 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	RevengeTracker.SetString(dominatedName, dominatorName);
 
 	return Plugin_Continue;
-}
-
-// Killers gain currency
-void Reward(int killer, int victim) {
-    float reward = CurrencyOnKill() * RevengeMultiplier(killer, victim)
-	AddClientCurrency(killer, reward);
-}
-
-// Slain players lose currency (disabled by default)
-void Punish(int victim) {
-	SubtractClientCurrency(victim, DeathPenalty(victim));
 }
 
 // Add an arbitrary float value to a client's currency
@@ -174,33 +174,47 @@ void SetCurrencyForAll(float amount) {
 }
 
 // Payment denied on suicide and other nonsense
-bool CleanKill(int killer, int victim) {
-    return killer && killer != victim;
+bool Suicide(int killer, int victim) {
+    return killer < 1 || killer == victim;
 }
 
 // Revenge kills trigger a bonus multiplier
+// TODO: optimize by avoiding conversion from id to name, if possible
 bool RevengeKill(int killer, int victim) {
-	char dominatedName[MAX_NAME_LENGTH];   GetClientName(killer, dominatedName, sizeof(dominatedName));
-	char dominatorName[MAX_NAME_LENGTH];   GetClientName(victim, dominatorName, sizeof(dominatorName));
-	char storedDominator[MAX_NAME_LENGTH]; RevengeTracker.GetString(dominatedName, storedDominator, sizeof(storedDominator));
+	// get killer name
+	char dominatedName[MAX_NAME_LENGTH];
+	GetClientName(killer, dominatedName, sizeof(dominatedName));
 
+	// check if killer has been dominated, and if so, who the dominator was
+	char storedDominator[MAX_NAME_LENGTH];
+	bool revenge = RevengeTracker.GetString(dominatedName, storedDominator, sizeof(storedDominator));
+
+	// bail early if killer hasn't actually been dominated
+	if (!revenge) { return false; }
+
+	// get victim name
+	char dominatorName[MAX_NAME_LENGTH];
+	GetClientName(victim, dominatorName, sizeof(dominatorName));
+
+	// if the victim never dominated the player, this is not a revenge kill
 	if (!StrEqual(dominatorName, storedDominator)) { return false; }
 
+	// confirmed as a revenge kill - removing the record also returns true
     return RevengeTracker.Remove(dominatedName);
 }
 
-// Returns a ConVar-defined float or 1 (which will have no effect)
-float RevengeMultiplier(int killer, int victim) {
-    return RevengeKill(killer, victim) ?
-        g_Cvar_RevengeMultiplier.FloatValue : 1.0;
+// Returns a ConVar-defined float on revenge, or 1 (which will have no effect)
+float RevengeMultiplier(bool revenge=false) {
+	return revenge ? g_Cvar_RevengeMultiplier.FloatValue : 1.0;
 }
 
-// Returns a random float clamped and multiplied by ConVars
-float CurrencyOnKill() {
+// Returns a random float clamped to a convar-defined range, then apply multipliers
+float CurrencyOnKill(bool revenge=false) {
     return GetRandomFloat(
         g_Cvar_CurrencyOnKillMin.FloatValue,
         g_Cvar_CurrencyOnKillMax.FloatValue
-    ) * g_Cvar_CurrencyMultiplier.FloatValue;
+    ) * g_Cvar_CurrencyMultiplier.FloatValue
+	  * RevengeMultiplier(revenge);
 }
 
 // Dominations earn a bonus (disabled by default)
