@@ -100,6 +100,7 @@ public void OnPluginEnd() {
 public void OnClientConnected(int client) {
 	if (IsFakeClient(client)) { return; }
 
+	if (UpgradesEnabled()) { SetClientCurrency(client, StartingCurrency()); }
 	PlayerCount++;
 }
 
