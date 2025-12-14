@@ -85,27 +85,24 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 
 	float reward = CurrencyOnKill(revenge);
 
-	AddClientCurrency(killer, reward);
-	AddClientCurrency(assister, reward);
-
-	SubtractClientCurrency(victim, DeathPenalty(victim));
+	if (killer)   AddClientCurrency(killer, reward);
+	if (assister) AddClientCurrency(assister, reward);
+	if (victim)   AddClientCurrency(victim, -DeathPenalty(victim));
 
 	return Plugin_Continue;
 }
 
 Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast) {
-	// Optional SFX for destruction of buildings still being built
-	if (event.GetBool("was_building")) { ObjectDenied(event); }
+	// Play SFX
+	// DEBUG - the event fires, but the function is not working as expected
+	// if (event.GetBool("was_building")) { ObjectDenied(event); }
 
-	AddClientCurrency(
-		event.GetInt("attacker"),
-		CurrencyForDestroyedObject(event)
-	);
+	int attacker = GetClientOfUserId(event.GetInt("attacker"));
+	int assister = GetClientOfUserId(event.GetInt("assister"));
+	float reward = CurrencyForDestroyedObject(event);
 
-	AddClientCurrency(
-		event.GetInt("assister"),
-		CurrencyForDestroyedObject(event)
-	);
+	if (attacker) AddClientCurrency(attacker, reward);
+	if (assister) AddClientCurrency(assister, reward);
 
 	return Plugin_Continue;
 }
@@ -122,6 +119,8 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 	// MAGIC NUMBER: 2 is "captured"
 	if (event.GetInt("eventtype") != 2) { return Plugin_Continue; }
 
+	// We could get the team from the event, but some maps use inverted logic
+	// (ctf_crasher for example). Using player, we get the right team consistently
 	int player = event.GetInt("player");
 	int team = GetClientTeam(player);
 	AddTeamCurrency(team, CurrencyFromFlagCapture());
@@ -145,15 +144,17 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 }
 
 // Play SFX when buildings are destroyed while being built
-void ObjectDenied(Event event) {
-	int builder = event.GetInt("userid");
-	int attacker = event.GetInt("attacker");
-	int assister = event.GetInt("assister");
+// TODO: Debug the heck out of this
+// void ObjectDenied(Event event) {
+// 	PrintToServer("[RTU] ObjectDenied event triggered");
+// 	int builder = GetClientOfUserId(event.GetInt("userid"));
+// 	int attacker = GetClientOfUserId(event.GetInt("attacker"));
+// 	int assister = GetClientOfUserId(event.GetInt("assister"));
 
-	if (IsClientInGame(builder))  EmitGameSoundToClient(builder,  "vo/engineer_no01.wav");
-	if (IsClientInGame(attacker)) EmitGameSoundToClient(attacker, "vo/engineer_gunslingerpunch02.wav");
-	if (IsClientInGame(assister)) EmitGameSoundToClient(assister, "vo/engineer_gunslingerpunch02.wav");
-}
+// 	if (ValidClient(builder))  EmitGameSoundToClient(builder,  "vo/engineer_no01.wav");
+// 	if (ValidClient(attacker)) EmitGameSoundToClient(attacker, "vo/engineer_gunslingerpunch02.wav");
+// 	if (ValidClient(assister)) EmitGameSoundToClient(assister, "vo/engineer_gunslingerpunch02.wav");
+// }
 
 // higher level buildings yield more currency
 float CurrencyForDestroyedObject(Event event) {
@@ -166,53 +167,37 @@ float CurrencyForDestroyedObject(Event event) {
 }
 
 // Add an arbitrary float value to a client's currency
-void AddClientCurrency(int client, float amount) {
-    if (!IsClientInGame(client) || IsFakeClient(client)) { return; }
-
-    float newBalance = GetClientCurrency(client) + amount;
-	SetClientCurrency(client, newBalance);
+bool AddClientCurrency(int client, float amount) {
+    float currency = GetClientCurrency(client);
+	return SetClientCurrency(client, currency + amount);
 }
 
 // Add an arbitrary float value to all clients on a team
 void AddTeamCurrency(int team, float amount) {
-	for (int i = 1; i <= MaxClients; i++) {
-		if (!IsClientInGame(i) || GetClientTeam(i) != team) { continue; }
-
-		AddClientCurrency(i, amount);
+	for (int client = 1; client <= MaxClients; client++) {
+		if (ValidClient(client) && GetClientTeam(client) == team)
+			AddClientCurrency(client, amount);
 	}
 }
 
-// Subtract an arbitrary float value from a client's currency
-void SubtractClientCurrency(int client, float amount) {
-    float newBalance = GetClientCurrency(client) - amount;
-    SetClientCurrency(client, newBalance);
-}
-
-// unused but included for consistency
-stock void SubtractTeamCurrency(int team, float amount) {
-    for (int i = 1; i <= MaxClients; i++) {
-        if (GetClientTeam(i) != team) { continue; }
-
-        SubtractClientCurrency(i, amount);
-    }
-}
-
-// Get a client's currency value as float
+// Get a client's currency value as float, or a negative value for invalid clients
 float GetClientCurrency(int client) {
-    return float(GetEntProp(client, Prop_Send, "m_nCurrency"));
+	return ValidClient(client) ?
+		float(GetEntProp(client, Prop_Send, "m_nCurrency")) :
+		-1.0;
 }
 
 // Set client currency to an arbitrary integer, rounded up from float
-void SetClientCurrency(int client, float amount) {
-	SetEntProp(client, Prop_Send, "m_nCurrency", RoundToCeil(amount));
+bool SetClientCurrency(int client, float amount) {
+	bool valid = ValidClient(client);
+	if (valid) SetEntProp(client, Prop_Send, "m_nCurrency", RoundToCeil(amount));
+	return valid;
 }
 
-void SetCurrencyForAll(float amount) {
-	for (int i = 1; i <= MaxClients; i++) {
-		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
-
-		SetClientCurrency(i, amount);
-	}
+// NOTE: this will not give currency to bots or spectators
+void SetAllCurrency(float amount) {
+	for (int client = 1; client <= MaxClients; client++)
+		SetClientCurrency(client, amount);
 }
 
 // Payment denied on suicide and other nonsense
@@ -266,6 +251,7 @@ float CurrencyOnDomination() {
 }
 
 // Dying may incur a penalty (disabled by default)
+// Returns a positive value, should be inverted when called
 float DeathPenalty(int victim) {
     return GetClientCurrency(victim)
          * g_Cvar_CurrencyDeathTax.FloatValue;
@@ -284,4 +270,11 @@ float CurrencyFromPointCapture() {
 float StartingCurrency() {
 	return g_Cvar_CurrencyStarting.FloatValue
 		 * g_Cvar_CurrencyMultiplier.FloatValue;
+}
+
+bool ValidClient(int client) {
+	return client
+		&& client <= MaxClients
+		&& IsClientConnected(client)
+		&& !IsFakeClient(client);
 }
