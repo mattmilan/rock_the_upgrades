@@ -101,10 +101,10 @@ void SpawnUpgradeStations() {
 }
 
 void SpawnUpgradeStationAt(int entity) {
-	// TODO: simplify; get the entity center directly
-	float   mins[3]; GetEntPropVector(entity, Prop_Data, "m_vecMins", mins);
-	float   maxs[3]; GetEntPropVector(entity, Prop_Data, "m_vecMaxs", maxs);
-	float center[3]; GetCenter(mins, maxs, center);
+	float center[3]; GetEntPropVector(entity, Prop_Data, "m_vecOrigin", center);
+
+	// TODO: I dont like this. What if a func_regenerate has origin at (0,0,0)?
+	if (GetVectorLength(center) < 0.001) GetCenterFromMinsMaxes(entity, center);
 
 	BuildUpgradeStation(center);
 }
@@ -142,8 +142,11 @@ void AssignPropertiesTo(int funcUpgrade) {
 	SetEntPropVector(funcUpgrade, Prop_Data, "m_vecMaxs", { 64.0, 64.0, 32.0 });
 }
 
-// TODO: does such a method already exist? then use it
-void GetCenter(float mins[3], float maxs[3], float center[3]) {
+
+void GetCenterFromMinsMaxes(int entity, float center[3]) {
+	float   mins[3]; GetEntPropVector(entity, Prop_Data, "m_vecMins", mins);
+	float   maxs[3]; GetEntPropVector(entity, Prop_Data, "m_vecMaxs", maxs);
+
 	SubtractVectors(maxs, mins, center);
 	ScaleVector(center, 0.5);
 	AddVectors(mins, center, center);
