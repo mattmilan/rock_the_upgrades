@@ -276,5 +276,6 @@ bool ValidClient(int client) {
 	return client
 		&& client <= MaxClients
 		&& IsClientConnected(client)
+		&& IsClientInGame(client)
 		&& !IsFakeClient(client);
 }
