@@ -43,7 +43,7 @@ public void EnableUpgrades() {
 	PrintToChatAll("[SM] %t", "RTU Enabled");
 	PlayRandomSoundFrom(SFX_Enable);
 	GameRules_SetProp("m_nForceUpgrades", 2, 4);
-	SetCurrencyForAll(StartingCurrency());
+	SetAllCurrency(StartingCurrency());
 	SpawnUpgradeStations();
 }
 
@@ -64,7 +64,7 @@ void ResetUpgrades(bool silent = false) {
 
 	if (!silent) { PrintToChatAll("[SM] %t", "RTU Reset"); }
 
-	SetCurrencyForAll(StartingCurrency());
+	SetAllCurrency(StartingCurrency());
 	ClearPlayerAndItemUpgrades();
 }
 
