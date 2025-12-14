@@ -115,9 +115,7 @@ public void OnMapEnd() {
 public void OnClientConnected(int client) {
 	if (IsFakeClient(client)) { return; }
 
-	if (UpgradesEnabled()) { SetClientCurrency(client, StartingCurrency()); }
 	PlayerCount++;
-
 	PrintToServer("[RTU] (OnClientConnected) ID: %d, PlayerCount: %d, Votes: %d, Needed: %d", client, PlayerCount, Votes.Length, VotesNeeded());
 }
 
@@ -152,7 +150,6 @@ Action Command_RTU(int client, int args) {
 Action Command_RTUEnable(int client, int args) {
 	if (!UpgradesEnabled()) { EnableUpgrades(); }
 	else { ReplyToCommand(client, "[SM] %t", "RTU Already Enabled"); }
-
 	return Plugin_Handled;
 }
 
@@ -172,17 +169,23 @@ Action Command_RTUDisable(int client, int args) {
 Action Command_RTUReset(int client, int args) {
 	if (UpgradesEnabled()) { ResetUpgrades(); }
 	else { ReplyToCommand(client, "[SM] %t", "RTU Not Enabled"); }
-
 	return Plugin_Handled;
 }
 
 void HookEvents() {
 	HookEvent("teamplay_round_start", Event_TeamplayRoundStart, EventHookMode_Post);
+	HookEvent("player_initial_spawn", Event_PlayerInitialSpawn, EventHookMode_Post);
+}
+
+Action Event_PlayerInitialSpawn(Event event, const char[] name, bool dontBroadcast) {
+	int client = event.GetInt("userid");
+	int clientIndex = GetClientOfUserId(client);
+	if (UpgradesEnabled()) { SetClientCurrency(clientIndex, StartingCurrency()); }
+	return Plugin_Continue;
 }
 
 Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
 	if (g_Cvar_MultiStageReset.IntValue == 1)  { ResetUpgrades(); }
-
 	return Plugin_Continue;
 }
 
