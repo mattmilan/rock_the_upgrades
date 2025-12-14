@@ -81,7 +81,7 @@ ArrayList Votes;			// List of clients who have voted
 
 public void OnPluginStart() {
 	Votes = new ArrayList();
-	PrecacheRequiredAssets();
+
 	InitCurrencyController();
 	InitConvars();
 	HookEvents();
@@ -90,6 +90,8 @@ public void OnPluginStart() {
 	LoadTranslations("common.phrases");
 	LoadTranslations("rock_the_upgrades.phrases");
 	AutoExecConfig(true, "rtu");
+
+	HandleLateLoad();
 }
 
 public void OnPluginEnd() {
@@ -97,11 +99,26 @@ public void OnPluginEnd() {
 	CloseCurrencyController();
 }
 
+public void OnMapStart() {
+ 	PlayerCount = 0;
+	WaitingForPlayers = true;
+	RevengeTracker.Clear(); // from currency_controller
+ 	Votes.Clear();
+	PrecacheRequiredAssets(); // from toggle_upgrades
+	PrintToServer("[RTU] (OnMapStart) PlayerCount: %d, Votes: %d, Needed: %d", PlayerCount, Votes.Length, VotesNeeded());
+}
+
+public void OnMapEnd() {
+	PrintToServer("[RTU] (OnMapEnd) PlayerCount: %d, Votes: %d, Needed: %d", PlayerCount, Votes.Length, VotesNeeded());
+}
+
 public void OnClientConnected(int client) {
 	if (IsFakeClient(client)) { return; }
 
 	if (UpgradesEnabled()) { SetClientCurrency(client, StartingCurrency()); }
 	PlayerCount++;
+
+	PrintToServer("[RTU] (OnClientConnected) ID: %d, PlayerCount: %d, Votes: %d, Needed: %d", client, PlayerCount, Votes.Length, VotesNeeded());
 }
 
 // NOTE: The vote might pass if a player disconnects without voting
@@ -111,6 +128,8 @@ public void OnClientDisconnect(int client) {
 	PlayerCount--;
 	RemoveVote(client);
 	CountVotes();
+
+	PrintToServer("[RTU] (OnClientDisconnect) ID: %d, PlayerCount: %d, Votes: %d, Needed: %d", client, PlayerCount, Votes.Length, VotesNeeded());
 }
 
 // Disallow voting during the waiting phase
@@ -203,6 +222,9 @@ void ReportVote(int client) {
 
 // Enable upgrades and award starting currency if vote passes
 void CountVotes() {
+	// Too soon to vote
+	if (WaitingForPlayers) { return; }
+
 	// No need to vote
 	if (UpgradesEnabled()) { return; }
 
@@ -217,7 +239,8 @@ void CountVotes() {
 
 // Get required number of votes from a percentage of connected player count. Ensure a minimum of 1 to prevent unintended activation
 int VotesNeeded() {
-	return RoundToCeil(float(PlayerCount) * g_Cvar_VoteThreshold.FloatValue);
+	float needed = float(PlayerCount) * g_Cvar_VoteThreshold.FloatValue;
+	return needed < 1 ? 1 : RoundToCeil(needed);
 }
 
 // Check if it's safe to vote
@@ -241,4 +264,15 @@ bool VotePossible(int client) {
 	}
 
 	return true;
+}
+
+void HandleLateLoad() {
+	PrecacheRequiredAssets();
+
+	// Ensures the voting threshold is reasonable
+	for (int i=1; i<=MaxClients; i++) {
+		if (IsClientConnected(i)) {
+			OnClientConnected(i);
+		}
+	}
 }
