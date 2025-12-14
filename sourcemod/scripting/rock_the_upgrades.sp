@@ -178,9 +178,8 @@ void HookEvents() {
 }
 
 Action Event_PlayerInitialSpawn(Event event, const char[] name, bool dontBroadcast) {
-	int client = event.GetInt("userid");
-	int clientIndex = GetClientOfUserId(client);
-	if (UpgradesEnabled()) { SetClientCurrency(clientIndex, StartingCurrency()); }
+	int client = event.GetInt("index");
+	if (UpgradesEnabled()) { SetClientCurrency(client, StartingCurrency()); }
 	return Plugin_Continue;
 }
 
