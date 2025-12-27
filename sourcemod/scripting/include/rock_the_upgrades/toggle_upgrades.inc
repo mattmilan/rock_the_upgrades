@@ -40,10 +40,9 @@ public void EnableUpgrades() {
 	if (UpgradesEnabled()) { return; }
 
 	// Ensure Prop is set before granting currency or spawning upgrade stations
-	PrintToChatAll("[SM] %t", "RTU Enabled");
+	PrintToChatAll("[RTU] %t", "RTU Enabled");
 	PlayRandomSoundFrom(SFX_Enable);
 	GameRules_SetProp("m_nForceUpgrades", 2, 4);
-	SetAllCurrency(StartingCurrency());
 	SpawnUpgradeStations();
 }
 
@@ -51,9 +50,8 @@ public void DisableUpgrades() {
 	// This is also being checked and reported upstream
 	if (!UpgradesEnabled()) { return; }
 
-	PrintToChatAll("[SM] %t", "RTU Disabled");
+	PrintToChatAll("[RTU] %t", "RTU Disabled");
 	PlayRandomSoundFrom(SFX_Disable);
-	ResetUpgrades(.silent = true)
 	GameRules_SetProp("m_nForceUpgrades", 0, 4);
 	RemoveUpgradeStations();
 }
@@ -62,31 +60,35 @@ void ResetUpgrades(bool silent = false) {
 	// This is also being checked and reported upstream
 	if (!UpgradesEnabled()) { return; }
 
-	if (!silent) { PrintToChatAll("[SM] %t", "RTU Reset"); }
+	if (!silent) { PrintToChatAll("[RTU] %t", "RTU Reset"); }
 
-	SetAllCurrency(StartingCurrency());
-	ClearPlayerAndItemUpgrades();
+	ResetPlayers();
 }
 
-void ClearPlayerAndItemUpgrades() {
+// TODO: next test
+// Can we save and reapply upgrades?
+void ResetPlayers() {
 	for (int i = 1; i <= MaxClients; i++) {
-		if (!IsClientInGame(i) || IsFakeClient(i)) { continue; }
-
-		// Clear player upgrades
-		TF2Attrib_RemoveAll(i);
-
-		// Clear weapon upgrades
-		int weaponSlots = 5;
-		for (int j = 0; j < weaponSlots; j++) {
-			int weapon = GetPlayerWeaponSlot(i, j);
-			if (weapon == -1) { continue; }
-
-			TF2Attrib_RemoveAll(weapon);
-		}
-
-		// Remove lingering effects of upgrades
-		TF2_RegeneratePlayer(i);
+		ResetPlayer(i);
 	}
+}
+
+void ResetPlayer(int client) {
+	if (!IsClientInGame(client) || IsFakeClient(client)) { return; }
+	// Clear player upgrades
+	TF2Attrib_RemoveAll(client);
+
+	// Clear weapon upgrades
+	int weaponSlots = 5;
+	for (int j = 0; j < weaponSlots; j++) {
+		int weapon = GetPlayerWeaponSlot(client, j);
+		if (weapon == -1) { continue; }
+
+		TF2Attrib_RemoveAll(weapon);
+	}
+
+	// Remove lingering effects of upgrades
+	TF2_RegeneratePlayer(client);
 }
 
 public bool UpgradesEnabled() {

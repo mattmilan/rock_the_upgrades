@@ -1,10 +1,8 @@
 *
-
+!*/
+!**/sourcemod/scripting/include/rock_the_upgrades/*
 !rock_the_upgrades.*
-!toggle_upgrades.*
-!currency_controller.*
-*.code-workspace
 !LICENSE
 !README.md
-!*/
 
+*.code-workspace

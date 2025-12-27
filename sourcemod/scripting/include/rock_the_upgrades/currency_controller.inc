@@ -1,5 +1,7 @@
-ConVar g_Cvar_CurrencyStarting;
-ConVar g_Cvar_CurrencyMultiplier;
+#include "bank.inc"
+
+// NOTES: Currency (100) is automatically provided on point capture; this plugin can add more via convars
+
 ConVar g_Cvar_CurrencyOnKillMin;
 ConVar g_Cvar_CurrencyOnKillMax;
 ConVar g_Cvar_CurrencyOnObjectDestroyed;
@@ -13,63 +15,49 @@ ConVar g_Cvar_CurrencyOnDomination;
 // ConVar g_Cvar_CurrencyOverTime;
 // ConVar g_Cvar_CurrencyOverTimeRate;
 // ConVar g_Cvar_CurrencyOverTimeFrequency;
-// ConVar g_Cvar_CurrencyLimit;
-// ConVar g_Cvar_UpgradeCostMultiplier;
 
-StringMap RevengeTracker;	// Bonus currency for revenge kills
+StringMap RevengeTracker; // Bonus currency for revenge kills
+Bank bank;				  // Manager for player currency
 
 // Invoke during `OnPluginStart()`
 void InitCurrencyController() {
-	RevengeTracker = new StringMap();
     InitCurrencyConVars();
     HookCurrencyEvents();
+
+	bank = new Bank();
+	RevengeTracker = new StringMap();
 }
 
 // Invoke during `OnPluginEnd()`
 void CloseCurrencyController() {
 	RevengeTracker.Close();
+	bank.Close();
 }
 
-// Connect important game events to currency-gaining functions
 void HookCurrencyEvents() {
+	// Currency gain
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
 	HookEvent("object_destroyed", Event_ObjectDestroyed, EventHookMode_Post);
 	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
 	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
 	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
+
+	// Currency sync
+	HookEvent("post_inventory_application", Event_PostInventoryApplication, EventHookMode_Post);
 }
 
 void InitCurrencyConVars() {
-	// Currency rules and modifiers, with reasonable defaults
-	g_Cvar_CurrencyStarting = CreateConVar("sm_rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
-	g_Cvar_CurrencyMultiplier = CreateConVar("sm_rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
-	g_Cvar_RevengeMultiplier = CreateConVar("sm_rtu_currency_on_revenge", "4.0", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
-
-	// Kills provide the player with a varying amount of currency
+	// Currency gain
 	g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
 	g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
-
-	// Engineer Buildings (Objects) provide increasing currency depending on state
+	g_Cvar_RevengeMultiplier = CreateConVar("sm_rtu_currency_on_revenge", "4.0", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
+	g_Cvar_CurrencyOnDomination = CreateConVar("sm_rtu_currency_on_domination", "0.0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
 	g_Cvar_CurrencyOnObjectDestroyed = CreateConVar("sm_rtu_currency_on_object_destroyed", "5.0", "Base amount of currency to give to players on building destruction, multiplied by building level [5, 0..]", 0, true, 0.0, false);
-
-	// Objectives provide currency to the entire team
-	// NOTE: TF2 is already providing 100 currency on point capture. This plugin doesn't prevent that, but it will add a little extra
 	g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "150.0", "Amount of currency to give to team on point capture in addition to the built-in default 100 currency [150, 0..]", 0, true, 0.0, false);
 	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("sm_rtu_currency_on_capture_flag", "250.0", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
 
-    // Additional rules, disabled by default
+    // Currency loss
     g_Cvar_CurrencyDeathTax = CreateConVar("sm_rtu_currency_death_tax", "0.0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
-    g_Cvar_CurrencyOnDomination = CreateConVar("sm_rtu_currency_on_domination", "0.0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
-
-    // TODO: implement
-    // // Time-based currency gain. Off by default
-	// g_Cvar_CurrencyOverTime = CreateConVar("sm_rtu_currency_over_time", "0", "Enable or disable time-based currency gain [0, 0,1]", 0, true, 0.0, true, 1.0);
-	// g_Cvar_CurrencyOverTimeRate = CreateConVar("sm_rtu_currency_over_time_rate", "5", "Amount of currency earned per tick [5, 1..]", 0, true, 1.0, false);
-	// g_Cvar_CurrencyOverTimeFrequency = CreateConVar("sm_rtu_currency_over_time_frequency", "30", "Frequency of time-based currency gain [30, 15..]", 0, true, 15.0, false);
-	//
-    // // Difficulty modifiers
-	// g_Cvar_UpgradeCostMultiplier = CreateConVar("sm_rtu_upgrade_cost_multiplier", "1.0", "Multiplier for upgrade costs when RTU is activated. A value of zero provides free upgrades [1, 0..].", 0, true, 0.0, false);
-	// g_Cvar_CurrencyLimit = CreateConVar("sm_rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
 }
 
 // Kills earn currency
@@ -85,31 +73,34 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 
 	float reward = CurrencyOnKill(revenge);
 
-	if (killer)   AddClientCurrency(killer, reward);
-	if (assister) AddClientCurrency(assister, reward);
-	if (victim)   AddClientCurrency(victim, -DeathPenalty(victim));
+	if (killer)   bank.Deposit(reward, killer);
+	if (assister) bank.Deposit(reward, assister);
+	if (victim)   bank.Burn(DeathPenalty(victim), victim);
 
 	return Plugin_Continue;
 }
 
+// Destroying an engineer building rewards increasing currency per building upgrade
 Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast) {
-	// Play SFX
-	// DEBUG - the event fires, but the function is not working as expected
+	// Play SFX when destroying an unfinished building
 	// if (event.GetBool("was_building")) { ObjectDenied(event); }
 
 	int attacker = GetClientOfUserId(event.GetInt("attacker"));
 	int assister = GetClientOfUserId(event.GetInt("assister"));
 	float reward = CurrencyForDestroyedObject(event);
 
-	if (attacker) AddClientCurrency(attacker, reward);
-	if (assister) AddClientCurrency(assister, reward);
+	if (attacker) bank.Deposit(reward, attacker);
+	if (assister) bank.Deposit(reward, assister);
 
 	return Plugin_Continue;
 }
 
 // Capturing a point earns team currency
 Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
-	AddTeamCurrency(event.GetInt("team"), CurrencyFromPointCapture());
+	bank.DepositAll(
+		CurrencyFromPointCapture(),
+		.team=event.GetInt("team")
+	);
 
 	return Plugin_Continue;
 }
@@ -119,11 +110,13 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 	// MAGIC NUMBER: 2 is "captured"
 	if (event.GetInt("eventtype") != 2) { return Plugin_Continue; }
 
-	// We could get the team from the event, but some maps use inverted logic
-	// (ctf_crasher for example). Using player, we get the right team consistently
+	// event.GetInt("team") won't work as some maps have inverted flag logic
 	int player = event.GetInt("player");
-	int team = GetClientTeam(player);
-	AddTeamCurrency(team, CurrencyFromFlagCapture());
+
+	bank.DepositAll(
+		CurrencyFromFlagCapture(),
+		.team=GetClientTeam(player)
+	);
 
 	return Plugin_Continue;
 }
@@ -133,12 +126,31 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	// Handle domination
     int dominator = event.GetInt("dominator");
 	int dominated = event.GetInt("dominated");
-	AddClientCurrency(dominator, CurrencyOnDomination());
+	bank.Deposit(CurrencyOnDomination(), dominator);
 
 	// Track revenge
 	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
 	char dominatedName[MAX_NAME_LENGTH]; GetClientName(dominated, dominatedName, sizeof(dominatedName));
 	RevengeTracker.SetString(dominatedName, dominatorName);
+
+	return Plugin_Continue;
+}
+
+
+Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
+	if (!UpgradesEnabled()) {
+		return Plugin_Continue;
+	}
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client)) {
+		return Plugin_Continue;
+	}
+
+	// PrintToServer("[RTU][Bank] PostInventoryApplication event triggered: %f", bank.GetClientCurrency(client));
+
+	// An inventory change might indicate an upgrade purchase/refund
+	// Resolve the resulting currency deltas and sync the account balance
+	bank.ResolveDelta(client);
 
 	return Plugin_Continue;
 }
@@ -162,43 +174,9 @@ float CurrencyForDestroyedObject(Event event) {
 	int upgradeLevel = GetEntProp(objectIndex, Prop_Send, "m_iUpgradeLevel");
 
 	return upgradeLevel
-		 * g_Cvar_CurrencyOnObjectDestroyed.FloatValue
-		 * g_Cvar_CurrencyMultiplier.FloatValue;
+		 * g_Cvar_CurrencyOnObjectDestroyed.FloatValue;
 }
 
-// Add an arbitrary float value to a client's currency
-bool AddClientCurrency(int client, float amount) {
-    float currency = GetClientCurrency(client);
-	return SetClientCurrency(client, currency + amount);
-}
-
-// Add an arbitrary float value to all clients on a team
-void AddTeamCurrency(int team, float amount) {
-	for (int client = 1; client <= MaxClients; client++) {
-		if (ValidClient(client) && GetClientTeam(client) == team)
-			AddClientCurrency(client, amount);
-	}
-}
-
-// Get a client's currency value as float, or a negative value for invalid clients
-float GetClientCurrency(int client) {
-	return ValidClient(client) ?
-		float(GetEntProp(client, Prop_Send, "m_nCurrency")) :
-		-1.0;
-}
-
-// Set client currency to an arbitrary integer, rounded up from float
-bool SetClientCurrency(int client, float amount) {
-	bool valid = ValidClient(client);
-	if (valid) SetEntProp(client, Prop_Send, "m_nCurrency", RoundToCeil(amount));
-	return valid;
-}
-
-// NOTE: this will not give currency to bots or spectators
-void SetAllCurrency(float amount) {
-	for (int client = 1; client <= MaxClients; client++)
-		SetClientCurrency(client, amount);
-}
 
 // Payment denied on suicide and other nonsense
 bool Suicide(int killer, int victim) {
@@ -240,42 +218,25 @@ float CurrencyOnKill(bool revenge=false) {
     return GetRandomFloat(
         g_Cvar_CurrencyOnKillMin.FloatValue,
         g_Cvar_CurrencyOnKillMax.FloatValue
-    ) * g_Cvar_CurrencyMultiplier.FloatValue
-	  * RevengeMultiplier(revenge);
+    ) * RevengeMultiplier(revenge);
 }
 
 // Dominations earn a bonus (disabled by default)
 float CurrencyOnDomination() {
-    return g_Cvar_CurrencyOnDomination.FloatValue
-         * g_Cvar_CurrencyMultiplier.FloatValue;
+    return g_Cvar_CurrencyOnDomination.FloatValue;
 }
 
 // Dying may incur a penalty (disabled by default)
 // Returns a positive value, should be inverted when called
 float DeathPenalty(int victim) {
-    return GetClientCurrency(victim)
+    return bank.Balance(victim)
          * g_Cvar_CurrencyDeathTax.FloatValue;
 }
 
 float CurrencyFromFlagCapture() {
-	return g_Cvar_CurrencyOnCaptureFlag.FloatValue
-         * g_Cvar_CurrencyMultiplier.FloatValue;
+	return g_Cvar_CurrencyOnCaptureFlag.FloatValue;
 }
 
 float CurrencyFromPointCapture() {
-	return g_Cvar_CurrencyOnCapturePoint.FloatValue
-         * g_Cvar_CurrencyMultiplier.FloatValue;
-}
-
-float StartingCurrency() {
-	return g_Cvar_CurrencyStarting.FloatValue
-		 * g_Cvar_CurrencyMultiplier.FloatValue;
-}
-
-bool ValidClient(int client) {
-	return client
-		&& client <= MaxClients
-		&& IsClientConnected(client)
-		&& IsClientInGame(client)
-		&& !IsFakeClient(client);
+	return g_Cvar_CurrencyOnCapturePoint.FloatValue;
 }
