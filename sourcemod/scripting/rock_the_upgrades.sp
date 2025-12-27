@@ -95,12 +95,17 @@ ConVar g_Cvar_MultiStageReset;
 
 bool WaitingForPlayers; 		 // Disallows voting while "Waiting for Players"
 int PlayerCount;				 // Number of connected clients (excluding bots)
+bool RTULateLoad;				 // Might be needed to get SteamIDs in lateload
 ArrayList Votes;				 // List of clients who have voted
-Handle g_hSetCustomUpgradesFile; // Set custom upgrades... from a file!
+
+// TODO: might not be needed, requires exploration
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
+    RTULateLoad = late;
+    return APLRes_Success;
+}
 
 public void OnPluginStart() {
 	// plugin setup
-	// PrepareCustomUpgradesCall();
 	Votes = new ArrayList();
 	InitCurrencyController();
 	InitConvars();
@@ -112,75 +117,43 @@ public void OnPluginStart() {
 	LoadTranslations("rock_the_upgrades.phrases");
 	AutoExecConfig(true, "rtu");
 
-	HandleLateLoad();
+	if (RTULateLoad) HandleLateLoad();
 }
 
+// Clean up if the plugin is unloaded/reloaded
 public void OnPluginEnd() {
 	Votes.Close();
 	CloseCurrencyController();
 }
 
 public void OnMapStart() {
-	// ApplyCustomUpgradesFile();
+	PrintToServer("[RTU] Map Start");
+	bank.PrintAccounts();
  	PlayerCount = 0;
 	WaitingForPlayers = true;
 	RevengeTracker.Clear(); // from currency_controller
  	Votes.Clear();
+	bank.Clear();
 	PrecacheRequiredAssets(); // from toggle_upgrades
-	PrintToServer("[RTU] (OnMapStart) PlayerCount: %d, Votes: %d, Needed: %d", PlayerCount, Votes.Length, VotesNeeded());
 }
 
-void PrepareCustomUpgradesCall() {
-	Handle hGameConf = LoadGameConfigFile("tf2.gamerules");
-	StartPrepSDKCall(SDKCall_GameRules);
-	PrepSDKCall_SetFromConf(hGameConf, SDKConf_Signature, "CTFGameRules::SetCustomUpgradesFile");
-	PrepSDKCall_AddParameter(SDKType_String, SDKPass_Plain);
-	g_hSetCustomUpgradesFile = EndPrepSDKCall();
-}
-
-void ApplyCustomUpgradesFile() {
-	// TODO: verify file format and fail gracefully
-	// TODO: DRY
-	// WARN: constant is for player names not map names
-	char upgradesFilePath[MAX_NAME_LENGTH];
-	char upgradesFileFolder[] = "cfg/sourcemod/";
-	PrintToServer("[RTU] Checking for custom upgrades files in %s", upgradesFileFolder);
-
-	// Check for map specific upgrades first
-	char mapName[MAX_NAME_LENGTH]; GetCurrentMap(mapName, sizeof(mapName));
-	PrintToServer("[RTU] Current map name: %s", mapName);
-
-	Format(upgradesFilePath, sizeof(upgradesFilePath), "cfg/sourcemod/upgrades_%s.txt", mapName);
-	if (FileExists(upgradesFilePath)) {
-		PrintToServer("[RTU] Found map-specific upgrades file: %s", upgradesFilePath);
-		SDKCall(g_hSetCustomUpgradesFile, upgradesFilePath);
-		return;
-	}
-
-	// Check for global upgrades file last
-	Format(upgradesFilePath, sizeof(upgradesFilePath), "%s/upgrades.txt", upgradesFileFolder);
-	if (FileExists(upgradesFilePath)) {
-		PrintToServer("[RTU] Applying global custom upgrades file: %s", upgradesFilePath);
-		SDKCall(g_hSetCustomUpgradesFile, upgradesFilePath);
-		return;
-	}
-
-	PrintToServer("[RTU] No custom upgrades file found. Default upgrades will be used. WARNING: Using default upgrades outside of MVM mode may crash the server.");
-}
-
-public void OnMapEnd() {
-	PrintToServer("[RTU] (OnMapEnd) PlayerCount: %d, Votes: %d, Needed: %d", PlayerCount, Votes.Length, VotesNeeded());
-}
-
+// Simply increment voting threshold. Continued in `OnClientAuthorized`
 public void OnClientConnected(int client) {
+	PrintToServer("[RTU] Client Connected");
 	if (IsFakeClient(client)) { return; }
 
 	PlayerCount++;
-	PrintToServer("[RTU] (OnClientConnected) ID: %d, PlayerCount: %d, Votes: %d, Needed: %d", client, PlayerCount, Votes.Length, VotesNeeded());
 }
 
+// Banks maintain accounts for each connected client for the duration of the map
+// When reconnecting, their currency is retained; upgrades must be repurchased
+// (the disconnect event resets their `spent` value)
+// This is only possible by using a trusted unique identifier - SteamID - as the
+// bank key. This is the earliest forward in which that identifier is available.
 public void OnClientAuthorized(int client) {
-	// NOTE: SteamID lookup cannot succeed prior to this event
+	PrintToServer("[RTU] Client Authorized");
+	if (IsFakeClient(client)) { return; }
+
 	bank.Connect(client);
 }
 
@@ -192,8 +165,6 @@ public void OnClientDisconnect(int client) {
 	PlayerCount--;
 	RemoveVote(client);
 	CountVotes();
-
-	PrintToServer("[RTU] (OnClientDisconnect) ID: %d, PlayerCount: %d, Votes: %d, Needed: %d", client, PlayerCount, Votes.Length, VotesNeeded());
 }
 
 // Disallow voting during the waiting phase
@@ -212,15 +183,25 @@ Action Command_RTU(int client, int args) {
 	return Plugin_Handled;
 }
 
-Action Command_Banks(int client, int args) {
+// Player Command - show account data for all of client's classes
+Action Command_RTUAccount(int client, int args) {
+	if (client > 0) bank.PrintAccount(client);
+	else PrintToServer("[RTU] %t", "Command `rtu_account` can only be used by clients.");
+
+	return Plugin_Handled;
+}
+
+// Admin Command - show account data for all clients' current class
+Action Command_RTUBanks(int client, int args) {
 	bank.PrintToServer();
 	return Plugin_Handled;
 }
 
 // Admin command - skip voting and enable immediately
 Action Command_RTUEnable(int client, int args) {
-	if (UpgradesEnabled()) { ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled"); }
-	else {
+	if (UpgradesEnabled()) {
+		ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled");
+	} else {
 		bank.Sync();
 		EnableUpgrades();
 	}
@@ -273,10 +254,12 @@ Action Command_RTUPay(int client, int args) {
 	char target[MAX_NAME_LENGTH]; GetCmdArg(2, target, MAX_NAME_LENGTH);
 
 	// Pay self if no target specified
-	if (!target[0]) {
+	if (!target[0] && client > 0) {
 		bank.Deposit(amount, client);
 	} else if (!bank.DepositTarget(target, amount, .replyTo=client)) {
 		ReplyToCommand(client, "[RTU] Could not find player %s", target);
+	} else {
+		ReplyToCommand(client, "[RTU] Command `rtu_pay` cannot be called from server without specifying a target");
 	}
 
 	return Plugin_Handled;
@@ -286,53 +269,32 @@ Action Command_RTUPay(int client, int args) {
 void HookEvents() {
 	HookEvent("teamplay_round_start", Event_TeamplayRoundStart, EventHookMode_Post);
 	HookEvent("player_initial_spawn", Event_PlayerInitialSpawn, EventHookMode_Post);
-	HookEvent("upgrades_file_changed", Event_UpgradesFileChanged, EventHookMode_Post);
-	// HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
-	HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Pre);
-	HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Post);
+	HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
 }
 
+// Bank tracks currency per class - inform it of all class changes
 Action Event_PlayerChangeClass(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	// ResetPlayer(client); // from toggle_upgrades
-	bank.Refund(client); // from bank.inc
-	PrintToServer("[RTU] (PlayerChangeClass) Reset upgrades and Refund player.");
-	UpdateAccountTFClass(event);
+	if (IsFakeClient(client)) { return Plugin_Continue; }
 
-	CreateTimer(0.1, ResetPlayer, client); // Exception reported: Client index 234881215 is invalid
-	return Plugin_Continue;
-}
-
-Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
-	PrintToServer("[RTU] PlayerSpawn event triggered.");
-	UpdateAccountTFClass(event);
+	TFClassType classType = view_as<TFClassType>(event.GetInt("class"));
+	bank.SetClass(client, classType);
 
 	return Plugin_Continue;
 }
 
-// NOTE: decided not to guard when upgrades not enabled to catch initial class selection
-void UpdateAccountTFClass(Event event) {
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	bank.SetClass(client, view_as<TFClassType>(event.GetInt("class")));
-	bank.Sync(client);
-}
-
-Action Event_UpgradesFileChanged(Event event, const char[] name, bool dontBroadcast) {
-	char path[PLATFORM_MAX_PATH]; event.GetString("path", path, sizeof(path));
-	PrintToServer("[RTU] Upgrades file changed, reapplying custom upgrades file: %s.", path);
-	// ApplyCustomUpgradesFile();
-
-	return Plugin_Continue;
-}
-
-// TODO: should we sync on -each- spawn?
+// Synchronize currency as soon as it's safe; ie once the clients `m_nCurrency` prop exists
 Action Event_PlayerInitialSpawn(Event event, const char[] name, bool dontBroadcast) {
-	PrintToServer("[RTU] PlayerInitialSpawn event triggered.");
-	if (UpgradesEnabled()) bank.Sync(event.GetInt("index"));
+	int client = event.GetInt("index");
+	if (IsFakeClient(client)) { return Plugin_Continue; }
+	// UpdateAccountTFClass(event);
+	// if (UpgradesEnabled())
+	bank.Sync(client);
 
 	return Plugin_Continue;
 }
 
+// Reset on round start unless configured otherwise. This may be firing too often.
 Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
 	if (g_Cvar_MultiStageReset.IntValue == 1) {
 		bank.ResetAccounts();
@@ -349,7 +311,8 @@ void InitConvars() {
 
 void RegisterCommands() {
 	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
-	RegAdminCmd("rtu_banks", Command_Banks, ADMFLAG_GENERIC, "Debug: Show full bank data");
+	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
+	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
 	RegAdminCmd("rtu_pay", Command_RTUPay, ADMFLAG_GENERIC, "Debug: Pay 100 currency to the caller");
 	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
 	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");

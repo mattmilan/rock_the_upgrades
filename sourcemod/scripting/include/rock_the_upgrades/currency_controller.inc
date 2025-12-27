@@ -136,7 +136,7 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	return Plugin_Continue;
 }
 
-
+// TODO: Guard against firing too often
 Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
 	if (!UpgradesEnabled()) {
 		return Plugin_Continue;
@@ -145,8 +145,6 @@ Action Event_PostInventoryApplication(Event event, const char[] name, bool dontB
 	if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client)) {
 		return Plugin_Continue;
 	}
-
-	// PrintToServer("[RTU][Bank] PostInventoryApplication event triggered: %f", bank.GetClientCurrency(client));
 
 	// An inventory change might indicate an upgrade purchase/refund
 	// Resolve the resulting currency deltas and sync the account balance
