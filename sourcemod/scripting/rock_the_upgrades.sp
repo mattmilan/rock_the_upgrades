@@ -92,6 +92,7 @@ public Plugin myinfo = {
 
 ConVar g_Cvar_VoteThreshold;
 ConVar g_Cvar_MultiStageReset;
+ConVar g_Cvar_AutoEnableThreshold;
 
 bool WaitingForPlayers; 		 // Disallows voting while "Waiting for Players"
 int PlayerCount;				 // Number of connected clients (excluding bots)
@@ -172,9 +173,15 @@ public void TF2_OnWaitingForPlayersStart() {
     WaitingForPlayers = true;
 }
 
-// Re-allow voting once waiting is complete
+// Re-allow voting once waiting is complete, and trigger optional Auto-Enable
 public void TF2_OnWaitingForPlayersEnd() {
     WaitingForPlayers = false;
+	if (g_Cvar_AutoEnableThreshold.IntValue <= 0) return;
+	if (PlayerCount < g_Cvar_AutoEnableThreshold.IntValue) return;
+	if (UpgradesEnabled()) return;
+
+	bank.Sync();
+	EnableUpgrades();
 }
 
 // Player command - attempts to vote
@@ -307,6 +314,7 @@ Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadca
 void InitConvars() {
 	g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
 	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
+	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "0.8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
 }
 
 void RegisterCommands() {
