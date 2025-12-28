@@ -97,6 +97,7 @@ bool WaitingForPlayers; 		 // Disallows voting while "Waiting for Players"
 int PlayerCount;				 // Number of connected clients (excluding bots)
 bool RTULateLoad;				 // Might be needed to get SteamIDs in lateload
 ArrayList Votes;				 // List of clients who have voted
+Handle g_hSetCustomUpgradesFile; // Set custom upgrades... from a file!
 
 // TODO: might not be needed, requires exploration
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
@@ -106,6 +107,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 public void OnPluginStart() {
 	// plugin setup
+	PrepareCustomUpgradesCall();
 	Votes = new ArrayList();
 	InitCurrencyController();
 	InitConvars();
@@ -128,6 +130,7 @@ public void OnPluginEnd() {
 
 public void OnMapStart() {
 	PrintToServer("[RTU] Map Start");
+	ApplyCustomUpgradesFile();
 	bank.PrintAccounts();
  	PlayerCount = 0;
 	WaitingForPlayers = true;
@@ -270,6 +273,7 @@ void HookEvents() {
 	HookEvent("teamplay_round_start", Event_TeamplayRoundStart, EventHookMode_Post);
 	HookEvent("player_initial_spawn", Event_PlayerInitialSpawn, EventHookMode_Post);
 	HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
+	HookEvent("upgrades_file_changed", Event_UpgradesFileChanged, EventHookMode_Post);
 }
 
 // Bank tracks currency per class - inform it of all class changes
@@ -300,6 +304,13 @@ Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadca
 		bank.ResetAccounts();
 		ResetUpgrades();
 	}
+
+	return Plugin_Continue;
+}
+
+Action Event_UpgradesFileChanged(Event event, const char[] name, bool dontBroadcast) {
+	char path[PLATFORM_MAX_PATH]; event.GetString("path", path, sizeof(path));
+	PrintToServer("[RTU] Upgrades file changed, reapplying custom upgrades file: %s.", path);
 
 	return Plugin_Continue;
 }
@@ -397,4 +408,59 @@ void HandleLateLoad() {
 			OnClientConnected(i);
 		}
 	}
+}
+
+void PrepareCustomUpgradesCall() {
+	Handle hGameConf = LoadGameConfigFile("tf2.gamerules");
+	if (!hGameConf) {
+		SetFailState("Could not locate gamedata file tf2.gamerules.txt for RockTheUpgrades, pausing plugin");
+	}
+
+	// StartPrepSDKCall(SDKCall_GameRules);
+	StartPrepSDKCall(SDKCall_Raw);
+
+	bool setFromConf = PrepSDKCall_SetFromConf(hGameConf, SDKConf_Signature, "CTFGameRules::SetCustomUpgradesFile");
+	if (!setFromConf) {
+		PrintToServer("[RTU] ERROR: Could not find CTFGameRules::SetCustomUpgradesFile in tf2.gamerules");
+		return;
+	}
+
+	PrepSDKCall_AddParameter(SDKType_String, SDKPass_Plain);
+
+	g_hSetCustomUpgradesFile = EndPrepSDKCall();
+	if (g_hSetCustomUpgradesFile == INVALID_HANDLE) {
+		PrintToServer("[RTU] ERROR: Could not prepare SDK call for CTFGameRules::SetCustomUpgradesFile");
+	}else PrintToServer("[RTU] Prepared SDK call for CTFGameRules::SetCustomUpgradesFile");
+}
+
+void ApplyCustomUpgradesFile() {
+	// TODO: verify file format and fail gracefully
+	// TODO: DRY
+	// WARN: constant is for player names not map names
+	char upgradesFilePath[MAX_NAME_LENGTH];
+	char upgradesFileFolder[] = "cfg/sourcemod/";
+	PrintToServer("[RTU] Checking for custom upgrades files in %s", upgradesFileFolder);
+
+	// Check for map specific upgrades first
+	char mapName[MAX_NAME_LENGTH]; GetCurrentMap(mapName, sizeof(mapName));
+
+	Format(upgradesFilePath, sizeof(upgradesFilePath), "cfg/sourcemod/upgrades_%s.txt", mapName);
+	if (FileExists(upgradesFilePath)) {
+		PrintToServer("[RTU] Found map-specific upgrades file: %s", upgradesFilePath);
+		SDKCall(g_hSetCustomUpgradesFile, upgradesFilePath);
+		return;
+	}
+
+	PrintToServer("[RTU] No map-specific upgrades file found in %s", upgradesFilePath);
+
+	// Check for global upgrades file last
+	Format(upgradesFilePath, sizeof(upgradesFilePath), "%supgrades.txt", upgradesFileFolder);
+	if (FileExists(upgradesFilePath)) {
+		PrintToServer("[RTU] Applying global custom upgrades file: %s", upgradesFilePath);
+		SDKCall(g_hSetCustomUpgradesFile, upgradesFilePath);
+		return;
+	}
+
+	PrintToServer("[RTU] No custom upgrades file found. Default upgrades will be used");
+	PrintToServer("[RTU] **WARNING: Using default upgrades outside of MVM mode may crash the server.");
 }
