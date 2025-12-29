@@ -48,16 +48,16 @@ void HookCurrencyEvents() {
 
 void InitCurrencyConVars() {
 	// Currency gain
-	g_Cvar_CurrencyOnKillMin = CreateConVar("sm_rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnKillMax = CreateConVar("sm_rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
-	g_Cvar_RevengeMultiplier = CreateConVar("sm_rtu_currency_on_revenge", "4.0", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
-	g_Cvar_CurrencyOnDomination = CreateConVar("sm_rtu_currency_on_domination", "0.0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnObjectDestroyed = CreateConVar("sm_rtu_currency_on_object_destroyed", "5.0", "Base amount of currency to give to players on building destruction, multiplied by building level [5, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnCapturePoint = CreateConVar("sm_rtu_currency_on_capture_point", "150.0", "Amount of currency to give to team on point capture in addition to the built-in default 100 currency [150, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("sm_rtu_currency_on_capture_flag", "250.0", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnKillMin = CreateConVar("rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnKillMax = CreateConVar("rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
+	g_Cvar_RevengeMultiplier = CreateConVar("rtu_currency_on_revenge", "4.0", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
+	g_Cvar_CurrencyOnDomination = CreateConVar("rtu_currency_on_domination", "0.0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnObjectDestroyed = CreateConVar("rtu_currency_on_object_destroyed", "5.0", "Base amount of currency to give to players on building destruction, multiplied by building level [5, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnCapturePoint = CreateConVar("rtu_currency_on_capture_point", "150.0", "Amount of currency to give to team on point capture in addition to the built-in default 100 currency [150, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("rtu_currency_on_capture_flag", "250.0", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
 
     // Currency loss
-    g_Cvar_CurrencyDeathTax = CreateConVar("sm_rtu_currency_death_tax", "0.0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
+    g_Cvar_CurrencyDeathTax = CreateConVar("rtu_currency_death_tax", "0.0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
 }
 
 // Kills earn currency
@@ -124,8 +124,8 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 // Dominations earn bonus currency (disabled by default) and provide data for revenge kills
 Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
 	// Handle domination
-    int dominator = event.GetInt("dominator");
-	int dominated = event.GetInt("dominated");
+    int dominator = GetClientOfUserId(event.GetInt("dominator"));
+	int dominated = GetClientOfUserId(event.GetInt("dominated"));
 	bank.Deposit(CurrencyOnDomination(), dominator);
 
 	// Track revenge

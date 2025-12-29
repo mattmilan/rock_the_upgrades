@@ -35,18 +35,19 @@ void PrecacheRequiredAssets() {
     }
 }
 
-public void EnableUpgrades() {
+void EnableUpgrades(bool silent = false) {
 	// This is also being checked and reported upstream
 	if (UpgradesEnabled()) { return; }
 
 	// Ensure Prop is set before granting currency or spawning upgrade stations
-	PrintToChatAll("[RTU] %t", "RTU Enabled");
+	if (!silent) PrintToChatAll("[RTU] %t", "RTU Enabled");
+
 	PlayRandomSoundFrom(SFX_Enable);
 	GameRules_SetProp("m_nForceUpgrades", 2, 4);
 	SpawnUpgradeStations();
 }
 
-public void DisableUpgrades() {
+void DisableUpgrades() {
 	// This is also being checked and reported upstream
 	if (!UpgradesEnabled()) { return; }
 
