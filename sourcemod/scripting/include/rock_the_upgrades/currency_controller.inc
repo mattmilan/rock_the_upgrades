@@ -124,8 +124,8 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 // Dominations earn bonus currency (disabled by default) and provide data for revenge kills
 Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
 	// Handle domination
-    int dominator = event.GetInt("dominator");
-	int dominated = event.GetInt("dominated");
+    int dominator = GetClientOfUserId(event.GetInt("dominator"));
+	int dominated = GetClientOfUserId(event.GetInt("dominated"));
 	bank.Deposit(CurrencyOnDomination(), dominator);
 
 	// Track revenge
