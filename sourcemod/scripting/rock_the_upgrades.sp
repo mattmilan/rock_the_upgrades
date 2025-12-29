@@ -180,8 +180,9 @@ public void TF2_OnWaitingForPlayersEnd() {
 	if (PlayerCount < g_Cvar_AutoEnableThreshold.IntValue) return;
 	if (UpgradesEnabled()) return;
 
+	PrintToChatAll("[RTU] %t", "RTU AutoEnable");
 	bank.Sync();
-	EnableUpgrades();
+	EnableUpgrades(.silent=true);
 }
 
 // Player command - attempts to vote

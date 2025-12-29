@@ -12,6 +12,10 @@
 	 	"en"			"You have already voted to enable upgrades. ({1} votes, {2} required)"
 	}
 
+	"RTU AutoEnable" {
+		"en"			"Enabling upgrades automatically due to player count!"
+	}
+
 	"RTU Enabled" {
 		"en"			"Vote has succeeded - enabling upgrades!"
 	}
