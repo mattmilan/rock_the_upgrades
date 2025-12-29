@@ -185,9 +185,12 @@ public void TF2_OnWaitingForPlayersEnd() {
 	EnableUpgrades(.silent=true);
 }
 
-// Player command - attempts to vote
+// Player command - attempts to vote. Client validation handled upstream
 Action Command_RTU(int client, int args) {
-	if (client) { Vote(client); }
+	if (client <= 0) PrintToServer("[RTU] Command `rtu` is client-only.");
+	else if (UpgradesEnabled()) ToggleUpgradesMenu(client);
+	else Vote(client);
+
 	return Plugin_Handled;
 }
 
@@ -320,12 +323,30 @@ void InitConvars() {
 
 void RegisterCommands() {
 	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
+	RegConsoleCmd("rtu_shop", Command_RTUShop, "Open the upgrade shop menu.");
 	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
 	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
 	RegAdminCmd("rtu_pay", Command_RTUPay, ADMFLAG_GENERIC, "Debug: Pay 100 currency to the caller");
 	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
 	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");
 	RegAdminCmd("rtu_reset", Command_RTUReset, ADMFLAG_GENERIC, "Remove all upgrades and currency but leave the upgrade system enabled.");
+}
+
+Action Command_RTUShop(int client, int args) {
+	if (client <= 0) PrintToServer("[RTU] Command `rtu_shop` is client-only.");
+	else if (UpgradesEnabled()) ToggleUpgradesMenu(client);
+	else ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled");
+
+	return Plugin_Handled;
+}
+
+// Toggling this netprop is enough to open/close the upgrades menu
+// State validation handled upstream
+// NOTE: Menu cannot be closed this way if client is within a func_upgradestation
+void ToggleUpgradesMenu(int client) {
+	int current = GetEntProp(client, Prop_Send, "m_bInUpgradeZone");
+	int toggled = current == 0 ? 1 : 0;
+	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", toggled);
 }
 
 // Add a vote and trigger a count
