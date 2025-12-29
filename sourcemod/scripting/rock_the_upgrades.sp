@@ -93,6 +93,7 @@ public Plugin myinfo = {
 ConVar g_Cvar_VoteThreshold;
 ConVar g_Cvar_MultiStageReset;
 ConVar g_Cvar_AutoEnableThreshold;
+ConVar g_Cvar_PocketUpgrades;
 
 bool WaitingForPlayers; 		 // Disallows voting while "Waiting for Players"
 int PlayerCount;				 // Number of connected clients (excluding bots)
@@ -319,6 +320,7 @@ void InitConvars() {
 	g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
 	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
 	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "0.8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
+	g_Cvar_PocketUpgrades = CreateConVar("rtu_pocket_upgrades", "1", "Enable or disable upgrade menu access via chat commands [1, 0,1]", 0, true, 0.0, true, 1.0);
 }
 
 void RegisterCommands() {
@@ -344,9 +346,13 @@ Action Command_RTUShop(int client, int args) {
 // State validation handled upstream
 // NOTE: Menu cannot be closed this way if client is within a func_upgradestation
 void ToggleUpgradesMenu(int client) {
-	int current = GetEntProp(client, Prop_Send, "m_bInUpgradeZone");
-	int toggled = current == 0 ? 1 : 0;
-	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", toggled);
+	if (g_Cvar_PocketUpgrades.IntValue == 0) {
+		ReplyToCommand(client, "[RTU] Command disabled by server configuration");
+	} else {
+		int current = GetEntProp(client, Prop_Send, "m_bInUpgradeZone");
+		int toggled = current == 0 ? 1 : 0;
+		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", toggled);
+	}
 }
 
 // Add a vote and trigger a count
