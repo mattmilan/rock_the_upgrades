@@ -2,11 +2,6 @@ ArrayList SFX_Enable;
 ArrayList SFX_Disable;
 
 void PrecacheRequiredAssets() {
-	// This model will be assigned to each func_upgradestation
-	// It is not visibile, but it's required for collisions to work
-    char g_ArbitraryModel[] = "models/props_gameplay/resupply_locker.mdl";
-    if (!IsModelPrecached(g_ArbitraryModel)) { PrecacheModel(g_ArbitraryModel, true); }
-
     SFX_Enable = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 	SFX_Disable = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 
@@ -28,6 +23,7 @@ void PrecacheRequiredAssets() {
         SFX_Enable.GetString(i, sound, sizeof(sound));
         PrecacheSound(sound, true);
     }
+
     for (int i = 0; i < SFX_Disable.Length; i++) {
         char sound[PLATFORM_MAX_PATH];
         SFX_Disable.GetString(i, sound, sizeof(sound));
@@ -44,7 +40,12 @@ void EnableUpgrades(bool silent = false) {
 
 	PlayRandomSoundFrom(SFX_Enable);
 	GameRules_SetProp("m_nForceUpgrades", 2, 4);
-	SpawnUpgradeStations();
+
+	// Without at least one upgrade station, purchases are not saved
+	BuildUpgradeStation({0.0, 0.0, 0.0});
+
+	// Touching resupply lockers will trigger the upgrades menu
+	HookUpgradesMenuToResupply();
 }
 
 void DisableUpgrades() {
@@ -54,7 +55,6 @@ void DisableUpgrades() {
 	PrintToChatAll("[RTU] %t", "RTU Disabled");
 	PlayRandomSoundFrom(SFX_Disable);
 	GameRules_SetProp("m_nForceUpgrades", 0, 4);
-	RemoveUpgradeStations();
 }
 
 void ResetUpgrades(bool silent = false) {
@@ -92,33 +92,50 @@ void ResetPlayer(int client) {
 	TF2_RegeneratePlayer(client);
 }
 
-public bool UpgradesEnabled() {
+bool UpgradesEnabled() {
 	return GameRules_GetProp("m_nForceUpgrades") == 2;
 }
 
-void SpawnUpgradeStations() {
+// Approaching/leaving resupply lockers shows/hides the upgrades menu
+void HookUpgradesMenuToResupply() {
 	int resupplyEntity = -1;
 	while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "func_regenerate")) != -1) {
-		SpawnUpgradeStationAt(resupplyEntity);
+		SDKHook(resupplyEntity, SDKHook_StartTouchPost, OnUpgradeTriggerStartTouchPost);
+		SDKHook(resupplyEntity, SDKHook_EndTouchPost, OnUpgradeTriggerEndTouchPost);
 	}
 }
 
-void SpawnUpgradeStationAt(int entity) {
-	float center[3]; GetEntPropVector(entity, Prop_Data, "m_vecOrigin", center);
+// Introducing some trickiness due to the menu-opening chat command
+// The chat command opens the menu but leaves the player in a bad state
+// The bad state prevents the resupply locker triggers from working correctly
+// This bad state can be resolved by cycling a netprop with a timer
+// For more info search the TF2 source code for `m_bWasInZone`
+void OnUpgradeTriggerStartTouchPost(int trigger, int client) {
+	if (!UpgradesEnabled()) return;
+	if (!IsClientInGame(client) || IsFakeClient(client)) { return; }
 
-	// TODO: I dont like this. What if a func_regenerate has origin at (0,0,0)?
-	if (GetVectorLength(center) < 0.001) GetCenterFromMinsMaxes(entity, center);
-
-	BuildUpgradeStation(center);
+	HideUpgradeMenuFromClient(client);
+	CreateTimer(0.1, ShowUpgradeMenuToClient, client);
 }
 
-void RemoveUpgradeStations() {
-	int entity = -1;
-	while ((entity = FindEntityByClassname(entity, "func_upgradestation")) != -1) {
-		RemoveEntity(entity);
-	}
+void OnUpgradeTriggerEndTouchPost(int trigger, int client) {
+	if (!UpgradesEnabled()) return;
+	if (!IsClientInGame(client) || IsFakeClient(client)) { return; }
+
+	HideUpgradeMenuFromClient(client);
 }
 
+void ShowUpgradeMenuToClient(Handle timer, int client) {
+	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 1);
+}
+
+void HideUpgradeMenuFromClient(int client) {
+	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
+}
+
+// This entity simply needs to exist and be active for upgrades to 'work'
+// Thought it also controls upgrade menu visibility via player collision, that
+// has been delegated directly to the resupply lockers instead
 void BuildUpgradeStation(float center[3]) {
 	// Create, spawn, and position the upgrade station
 	int funcUpgrade = CreateEntityByName("func_upgradestation");
@@ -128,31 +145,6 @@ void BuildUpgradeStation(float center[3]) {
 	// Some properties need to be set after spawning/activation
 	ActivateEntity(funcUpgrade);
 	TeleportEntity(funcUpgrade, center, NULL_VECTOR, NULL_VECTOR);
-	AssignPropertiesTo(funcUpgrade);
-}
-
-// Make the upgrade station collidable, which opens/closes the upgrades menu
-void AssignPropertiesTo(int funcUpgrade) {
-	// HACK: collision detection doesn't work unless we assign some arbitrary pre-cached model
-	SetEntityModel(funcUpgrade, "models/props_gameplay/resupply_locker.mdl");
-
-	// make collidable with players
-	SetEntProp(funcUpgrade, Prop_Data, "m_nSolidType", 2);
-	SetEntProp(funcUpgrade, Prop_Data, "m_usSolidFlags", 12);
-
-	// TODO: Sizing could be fine tuned pending player feedback; decent starting point.
-	SetEntPropVector(funcUpgrade, Prop_Data, "m_vecMins", {-64.0, -64.0, -32.0 });
-	SetEntPropVector(funcUpgrade, Prop_Data, "m_vecMaxs", { 64.0, 64.0, 32.0 });
-}
-
-
-void GetCenterFromMinsMaxes(int entity, float center[3]) {
-	float   mins[3]; GetEntPropVector(entity, Prop_Data, "m_vecMins", mins);
-	float   maxs[3]; GetEntPropVector(entity, Prop_Data, "m_vecMaxs", maxs);
-
-	SubtractVectors(maxs, mins, center);
-	ScaleVector(center, 0.5);
-	AddVectors(mins, center, center);
 }
 
 void PlayRandomSoundFrom(ArrayList soundArray) {

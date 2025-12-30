@@ -189,7 +189,7 @@ public void TF2_OnWaitingForPlayersEnd() {
 // Player command - attempts to vote. Client validation handled upstream
 Action Command_RTU(int client, int args) {
 	if (client <= 0) PrintToServer("[RTU] Command `rtu` is client-only.");
-	else if (UpgradesEnabled()) ToggleUpgradesMenu(client);
+	else if (UpgradesEnabled()) ShowUpgradesMenu(client);
 	else Vote(client);
 
 	return Plugin_Handled;
@@ -325,7 +325,6 @@ void InitConvars() {
 
 void RegisterCommands() {
 	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
-	RegConsoleCmd("rtu_shop", Command_RTUShop, "Open the upgrade shop menu.");
 	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
 	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
 	RegAdminCmd("rtu_pay", Command_RTUPay, ADMFLAG_GENERIC, "Debug: Pay 100 currency to the caller");
@@ -334,25 +333,27 @@ void RegisterCommands() {
 	RegAdminCmd("rtu_reset", Command_RTUReset, ADMFLAG_GENERIC, "Remove all upgrades and currency but leave the upgrade system enabled.");
 }
 
-Action Command_RTUShop(int client, int args) {
-	if (client <= 0) PrintToServer("[RTU] Command `rtu_shop` is client-only.");
-	else if (UpgradesEnabled()) ToggleUpgradesMenu(client);
-	else ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled");
-
-	return Plugin_Handled;
-}
-
-// Toggling this netprop is enough to open/close the upgrades menu
-// State validation handled upstream
-// NOTE: Menu cannot be closed this way if client is within a func_upgradestation
-void ToggleUpgradesMenu(int client) {
+// Open the upgrades menu. Closing the menu is out of scope and handled in-game
+// NOTE: leaves the m_bInUpgradeZone prop set to 1 - requires special handling,
+//       otherwise the menu will not reopen (except on every respawn)
+void ShowUpgradesMenu(int client) {
 	if (g_Cvar_PocketUpgrades.IntValue == 0) {
 		ReplyToCommand(client, "[RTU] Command disabled by server configuration");
-	} else {
-		int current = GetEntProp(client, Prop_Send, "m_bInUpgradeZone");
-		int toggled = current == 0 ? 1 : 0;
-		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", toggled);
+		return;
 	}
+
+	// m_bWasInZone may need to be reset, this is the first step towards that
+	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
+
+	// using a timer so that m_bWasInZone has time to update
+	CreateTimer(0.1, OpenUpgradesMenu, client);
+}
+
+Action OpenUpgradesMenu(Handle timer, any client) {
+	if (client && IsClientInGame(client))
+		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 1);
+
+	return Plugin_Handled;
 }
 
 // Add a vote and trigger a count

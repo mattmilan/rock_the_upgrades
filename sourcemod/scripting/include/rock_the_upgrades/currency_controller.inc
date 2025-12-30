@@ -1,7 +1,5 @@
 #include "bank.inc"
 
-// NOTES: Currency (100) is automatically provided on point capture; this plugin can add more via convars
-
 ConVar g_Cvar_CurrencyOnKillMin;
 ConVar g_Cvar_CurrencyOnKillMax;
 ConVar g_Cvar_CurrencyOnObjectDestroyed;
@@ -65,6 +63,10 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int killer = GetClientOfUserId(event.GetInt("attacker"));
 	int assister = GetClientOfUserId(event.GetInt("assister"));
 	int victim = GetClientOfUserId(event.GetInt("userid"));
+
+	// Opening the upgrades menu via chat leaves this prop with a value of 1
+	// We need to reset it or the menu will immediately open on player spawn
+	SetEntProp(victim, Prop_Send, "m_bInUpgradeZone", 0);
 
 	if (Suicide(killer, victim)) { return Plugin_Continue; }
 
@@ -138,16 +140,13 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 
 // TODO: Guard against firing too often
 Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
-	if (!UpgradesEnabled()) {
-		return Plugin_Continue;
-	}
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client)) {
-		return Plugin_Continue;
-	}
+	if (!UpgradesEnabled()) return Plugin_Continue;
 
-	// An inventory change might indicate an upgrade purchase/refund
-	// Resolve the resulting currency deltas and sync the account balance
+	int client = GetClientOfUserId(event.GetInt("userid"));
+
+	if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+		return Plugin_Continue;
+
 	bank.ResolveDelta(client);
 
 	return Plugin_Continue;
