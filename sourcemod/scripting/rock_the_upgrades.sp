@@ -93,6 +93,7 @@ public Plugin myinfo = {
 ConVar g_Cvar_VoteThreshold;
 ConVar g_Cvar_MultiStageReset;
 ConVar g_Cvar_AutoEnableThreshold;
+ConVar g_Cvar_PocketUpgrades;
 
 bool WaitingForPlayers; 		 // Disallows voting while "Waiting for Players"
 int PlayerCount;				 // Number of connected clients (excluding bots)
@@ -135,24 +136,18 @@ public void OnMapStart() {
 	RevengeTracker.Clear(); // from currency_controller
  	Votes.Clear();
 	bank.Clear();
-	PrecacheRequiredAssets(); // from toggle_upgrades
+	InitToggleUpgrades();
 }
 
 // Simply increment voting threshold. Continued in `OnClientAuthorized`
 public void OnClientConnected(int client) {
-	PrintToServer("[RTU] Client Connected");
 	if (IsFakeClient(client)) { return; }
 
 	PlayerCount++;
 }
 
-// Banks maintain accounts for each connected client for the duration of the map
-// When reconnecting, their currency is retained; upgrades must be repurchased
-// (the disconnect event resets their `spent` value)
-// This is only possible by using a trusted unique identifier - SteamID - as the
-// bank key. This is the earliest forward in which that identifier is available.
+// Bank requires a unique trusted identifier which is made available here
 public void OnClientAuthorized(int client) {
-	PrintToServer("[RTU] Client Authorized");
 	if (IsFakeClient(client)) { return; }
 
 	bank.Connect(client);
@@ -185,9 +180,12 @@ public void TF2_OnWaitingForPlayersEnd() {
 	EnableUpgrades(.silent=true);
 }
 
-// Player command - attempts to vote
+// Player command - attempts to vote. Client validation handled upstream
 Action Command_RTU(int client, int args) {
-	if (client) { Vote(client); }
+	if (client <= 0) PrintToServer("[RTU] Command `rtu` is client-only.");
+	else if (UpgradesEnabled()) ShowUpgradesMenu(client);
+	else Vote(client);
+
 	return Plugin_Handled;
 }
 
@@ -316,6 +314,7 @@ void InitConvars() {
 	g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
 	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
 	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "0.8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
+	g_Cvar_PocketUpgrades = CreateConVar("rtu_pocket_upgrades", "1", "Enable or disable upgrade menu access via chat commands [1, 0,1]", 0, true, 0.0, true, 1.0);
 }
 
 void RegisterCommands() {
@@ -326,6 +325,29 @@ void RegisterCommands() {
 	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
 	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");
 	RegAdminCmd("rtu_reset", Command_RTUReset, ADMFLAG_GENERIC, "Remove all upgrades and currency but leave the upgrade system enabled.");
+}
+
+// Open the upgrades menu. Closing the menu is out of scope and handled in-game
+// NOTE: leaves the m_bInUpgradeZone prop set to 1 - requires special handling,
+//       otherwise the menu will not reopen (except on every respawn)
+void ShowUpgradesMenu(int client) {
+	if (g_Cvar_PocketUpgrades.IntValue == 0) {
+		ReplyToCommand(client, "[RTU] Command disabled by server configuration");
+		return;
+	}
+
+	// m_bWasInZone may need to be reset, this is the first step towards that
+	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
+
+	// using a timer so that m_bWasInZone has time to update
+	CreateTimer(0.1, OpenUpgradesMenu, client);
+}
+
+Action OpenUpgradesMenu(Handle timer, any client) {
+	if (client && IsClientInGame(client))
+		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 1);
+
+	return Plugin_Handled;
 }
 
 // Add a vote and trigger a count
@@ -398,7 +420,7 @@ bool VotePossible(int client) {
 }
 
 void HandleLateLoad() {
-	PrecacheRequiredAssets();
+	InitToggleUpgrades();
 
 	// Ensures the voting threshold is reasonable
 	for (int i=1; i<=MaxClients; i++) {
