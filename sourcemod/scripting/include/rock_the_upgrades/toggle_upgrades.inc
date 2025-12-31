@@ -1,7 +1,11 @@
 ArrayList SFX_Enable;
 ArrayList SFX_Disable;
 
-void PrecacheRequiredAssets() {
+bool g_bRTULockersHooked = false;
+
+void InitToggleUpgrades() {
+	g_bRTULockersHooked = false;
+
     SFX_Enable = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 	SFX_Disable = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 
@@ -98,6 +102,8 @@ bool UpgradesEnabled() {
 
 // Approaching/leaving resupply lockers shows/hides the upgrades menu
 void HookUpgradesMenuToResupply() {
+	if (g_bRTULockersHooked) return;
+	g_bRTULockersHooked = true;
 	int resupplyEntity = -1;
 	while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "func_regenerate")) != -1) {
 		SDKHook(resupplyEntity, SDKHook_StartTouchPost, OnUpgradeTriggerStartTouchPost);
@@ -111,25 +117,31 @@ void HookUpgradesMenuToResupply() {
 // This bad state can be resolved by cycling a netprop with a timer
 // For more info search the TF2 source code for `m_bWasInZone`
 void OnUpgradeTriggerStartTouchPost(int trigger, int client) {
+	PrintToServer("[RTU] Upgrade trigger start touch for client %d", client);
 	if (!UpgradesEnabled()) return;
-	if (!IsClientInGame(client) || IsFakeClient(client)) { return; }
+	if (!client || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client)) { return; }
 
 	HideUpgradeMenuFromClient(client);
 	CreateTimer(0.1, ShowUpgradeMenuToClient, client);
 }
 
 void OnUpgradeTriggerEndTouchPost(int trigger, int client) {
+	PrintToServer("[RTU] Upgrade trigger end touch for client %d", client);
 	if (!UpgradesEnabled()) return;
-	if (!IsClientInGame(client) || IsFakeClient(client)) { return; }
+	if (!client || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client)) { return; }
 
 	HideUpgradeMenuFromClient(client);
 }
 
-void ShowUpgradeMenuToClient(Handle timer, int client) {
+Action ShowUpgradeMenuToClient(Handle timer, int client) {
+	PrintToServer("[RTU] Showing upgrade menu to client %d", client);
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 1);
+
+	return Plugin_Handled;
 }
 
 void HideUpgradeMenuFromClient(int client) {
+	PrintToServer("[RTU] Hiding upgrade menu from client %d", client);
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 }
 

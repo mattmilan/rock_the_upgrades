@@ -136,24 +136,18 @@ public void OnMapStart() {
 	RevengeTracker.Clear(); // from currency_controller
  	Votes.Clear();
 	bank.Clear();
-	PrecacheRequiredAssets(); // from toggle_upgrades
+	InitToggleUpgrades();
 }
 
 // Simply increment voting threshold. Continued in `OnClientAuthorized`
 public void OnClientConnected(int client) {
-	PrintToServer("[RTU] Client Connected");
 	if (IsFakeClient(client)) { return; }
 
 	PlayerCount++;
 }
 
-// Banks maintain accounts for each connected client for the duration of the map
-// When reconnecting, their currency is retained; upgrades must be repurchased
-// (the disconnect event resets their `spent` value)
-// This is only possible by using a trusted unique identifier - SteamID - as the
-// bank key. This is the earliest forward in which that identifier is available.
+// Bank requires a unique trusted identifier which is made available here
 public void OnClientAuthorized(int client) {
-	PrintToServer("[RTU] Client Authorized");
 	if (IsFakeClient(client)) { return; }
 
 	bank.Connect(client);
@@ -426,7 +420,7 @@ bool VotePossible(int client) {
 }
 
 void HandleLateLoad() {
-	PrecacheRequiredAssets();
+	InitToggleUpgrades();
 
 	// Ensures the voting threshold is reasonable
 	for (int i=1; i<=MaxClients; i++) {

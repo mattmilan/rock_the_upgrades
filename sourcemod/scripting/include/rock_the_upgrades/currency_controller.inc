@@ -84,6 +84,9 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 
 // Destroying an engineer building rewards increasing currency per building upgrade
 Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast) {
+	// Ignore sappers completely
+	if (event.GetInt("objecttype") == view_as<int>(TFObject_Sapper)) return Plugin_Continue;
+
 	// Play SFX when destroying an unfinished building
 	// if (event.GetBool("was_building")) { ObjectDenied(event); }
 
