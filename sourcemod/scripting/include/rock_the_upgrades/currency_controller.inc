@@ -39,9 +39,6 @@ void HookCurrencyEvents() {
 	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
 	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
 	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
-
-	// Currency sync
-	HookEvent("post_inventory_application", Event_PostInventoryApplication, EventHookMode_Post);
 }
 
 void InitCurrencyConVars() {
@@ -141,19 +138,6 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	return Plugin_Continue;
 }
 
-// TODO: Guard against firing too often
-Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
-	if (!UpgradesEnabled()) return Plugin_Continue;
-
-	int client = GetClientOfUserId(event.GetInt("userid"));
-
-	if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
-		return Plugin_Continue;
-
-	bank.ResolveDelta(client);
-
-	return Plugin_Continue;
-}
 
 // Play SFX when buildings are destroyed while being built
 // TODO: Debug the heck out of this
