@@ -1,12 +1,8 @@
-/*
+/**
  * Rock The Upgrades: Upgrades Controller
- * TODO
+ * TODO: description
  */
 
-#include <sourcemod>
-#include <sdktools>
-#include <sdkhooks>
-#include <tf2>
 #include <tf2attributes>
 
 // Enum representing the various states the upgrades system can be in
@@ -21,7 +17,7 @@ enum UPGRADES_STATE {
 	UPGRADES_STATE_COUNT
 }
 
-const int MAX_UPGRADES_STATE_NAME = 16;
+const int MAX_UPGRADES_STATE_NAME = 32;
 
 // A random sound to play when upgrades are enabled
 static ArrayList SFX_UPGRADES_ENABLE;
@@ -53,45 +49,46 @@ methodmap UpgradesController < StringMap {
 
 	// Minimal constructor - yet another glorified StringMap
 	public UpgradesController(bool debug = false) {
-		// PrintToServer("[RTU][UpgradesController] Constructor called.");
 		StringMap upgradesController = new StringMap();
-		upgradesController.SetValue("debug", debug ? 1 : 0);
 
-		if (debug) PrintToServer("[RTU][UpgradesController] Debug mode enabled.");
+		// TODO: convar?
+		upgradesController.SetValue("debug", false);
 
 		return view_as<UpgradesController>(upgradesController);
 	}
 
 	// Establish values which persist between maps
 	public bool OnPluginStarted() {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Plugin started, initializing SFX arrays.");
-
 		this.InitSFXArrays();
+
 		return true;
 	}
 
 	public bool OnPluginEnded() {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Plugin ending, clearing SFX arrays.");
-
 		SFX_UPGRADES_ENABLE.Clear();
 		SFX_UPGRADES_DISABLE.Clear();
+
 		return true;
 	}
 
 	// Enforce safe defaults
 	public bool OnMapStarted() {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Map started, setting initial upgrades state and precaching SFX.");
+		// Clear guards
+		this.Remove("ready");
+		this.Remove("hooked");
+		this.Remove("built");
 
+		// Fire guarded initializers
 		this.SetInitialUpgradesState();
 		this.PrecacheSFX();
-		this.Hooked = false;
+
+		// Set guard
+		this.SetValue("ready", 1);
 		return true;
 	}
 
 	// Copy static string arrays into ArrayLists to facilitate random access
 	public void InitSFXArrays() {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Initializing SFX arrays.");
-
 		SFX_UPGRADES_ENABLE = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 		for (int i = 0; i < sizeof(pathsForEnableSFX); i++)
 			SFX_UPGRADES_ENABLE.PushString(pathsForEnableSFX[i]);
@@ -104,7 +101,7 @@ methodmap UpgradesController < StringMap {
 	// Needs to be called every OnMapStart when asset precaching occurs
 	// TODO: Is this even required?
 	public void PrecacheSFX() {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Precaching SFX.");
+		if (this.Ready) return;
 
 		// Precache all sounds
 		for (int i = 0; i < SFX_UPGRADES_ENABLE.Length; i++) {
@@ -125,12 +122,7 @@ methodmap UpgradesController < StringMap {
 	// 		INITIAL: Upgrades have not been enabled by any means
 	// 		ENABLED_BY_MAP: Upgrades are already enabled by the map
 	public bool SetInitialUpgradesState() {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Setting initial upgrades state.");
-
-		if (this.State > UPGRADES_STATE_UNSET) {
-			PrintToServer("[RTU][UpgradesController] Initial state already set (currently %d).", this.State);
-			return false;
-		}
+		if (this.Ready) return false;
 
 		this.State = this.CheckInitialUpgradesState();
 		return true;
@@ -140,46 +132,42 @@ methodmap UpgradesController < StringMap {
 	// Should not be called mid-map as this is an initializer method and cannot account for mid-map game states
 	// TODO: probably still need a path to determine if we need to add a func_upgradestation
 	public UPGRADES_STATE CheckInitialUpgradesState() {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Checking initial upgrades state from GameRules prop.");
-
 		return GameRules_GetProp("m_nForceUpgrades") == 2
 			? UPGRADES_STATE_ENABLED_BY_MAP
 			: UPGRADES_STATE_INITIAL;
 	}
 
 	public bool Enable(bool silent = false) {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Enabling upgrades (silent=%s).", silent ? "true" : "false");
-
 		if (this.Enabled) return false;
 
+		// Set controller state to ENABLED and announce the change
+		if (!silent) PrintToChatAll("[RTU] %t", "RTU Enabled");
+		this.PlayRandom(SFX_UPGRADES_ENABLE);
 		this.State = UPGRADES_STATE_ENABLED_BY_RTU;
 
-		// Ensure Prop is set before granting currency or spawning upgrade stations
-		if (!silent) PrintToChatAll("[RTU] %t", "RTU Enabled");
-
-		this.PlayRandom(SFX_UPGRADES_ENABLE);
+		// MAGIC NUMBER: 2 enables upgrades (There may be an ENUM for this)
 		GameRules_SetProp("m_nForceUpgrades", 2, 4);
 
-		// Without at least one upgrade station, purchases are not saved
+		// One upgrade station is required for purchased upgrades to persist
 		this.BuildUpgradeStation({0.0, 0.0, 0.0});
-		// Touching resupply lockers will trigger the upgrades menu
+
+		// Delegate upgrades menu visbility to resupply locker touch events
 		this.HookUpgradesMenuToResupply();
 
 		return true;
 	}
 
-	// NOTE: We cannot Un-SDKHook the resupply lockers (or can we?)
+	// This is not a complete reversal of the `Enable` method, which hooks
+	// lockers and builds an upgradestation. Those will persist, and in the event
+	// of a re-enable, they are guarded against subsequent calls for the current map
 	// TODO: Verify if changing the GameRules prop to 0 disables the menu
 	public bool Disable(bool silent = false) {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Disabling upgrades (silent=%s).", silent ? "true" : "false");
-
 		if (!this.Enabled) return false;
 
-		this.State = UPGRADES_STATE_DISABLED_BY_RTU;
-
+		// Set controller state to DISABLED and announce the change
 		if (!silent) PrintToChatAll("[RTU] %t", "RTU Disabled");
-
 		this.PlayRandom(SFX_UPGRADES_DISABLE);
+		this.State = UPGRADES_STATE_DISABLED_BY_RTU;
 
 		// MAGIC NUMBER: 0 disables upgrades (There may be an ENUM for this)
 		GameRules_SetProp("m_nForceUpgrades", 0, 4);
@@ -187,10 +175,8 @@ methodmap UpgradesController < StringMap {
 		return true;
 	}
 
-	// Call between rounds
+	// Call between rounds to clear player upgrades
 	public bool Reset(bool silent = false) {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Resetting all player upgrades (silent=%s).", silent ? "true" : "false");
-
 		if (!this.Enabled) return false;
 
 		if (!silent) PrintToChatAll("[RTU] %t", "RTU Reset");
@@ -201,8 +187,6 @@ methodmap UpgradesController < StringMap {
 
 	// Resets upgrades only. Currency reset via bank
 	public void ResetPlayer(int client) {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Resetting upgrades for client %d.", client);
-
 		if (!IsClientInGame(client) || IsFakeClient(client)) return;
 
 		// Clear player upgrades
@@ -221,16 +205,17 @@ methodmap UpgradesController < StringMap {
 
 		// Remove lingering effects of upgrades
 		TF2_RegeneratePlayer(client);
+
+		// Close the upgrades menu if open
+		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
 
 	// Approaching/leaving resupply lockers will show/hide the upgrades menu
 	// TODO: Solve for maps that have no `func_regenerate` entities
 	public void HookUpgradesMenuToResupply() {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Hooking upgrades menu to resupply lockers (hooked: %s).", this.Hooked ? "true" : "false");
-
 		if (this.Hooked) return;
 
-		this.Hooked = true;
+		this.SetValue("hooked", 1);
 
 		int resupplyEntity = -1;
 
@@ -240,17 +225,19 @@ methodmap UpgradesController < StringMap {
 		}
 	}
 
-	// This entity simply needs to exist and be active for upgrades to 'work'
-	// Thought it also controls upgrade menu visibility via player collision, that
-	// has been delegated directly to the resupply lockers instead
+	// Builds a func_upgradestation if one does not already exist
+	// Required for purchases and refunds to take effect
 	public void BuildUpgradeStation(float center[3]) {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Building upgrade station at (%.2f, %.2f, %.2f).", center[0], center[1], center[2]);
+		if (this.ContainsKey("built")) return;
+
+		this.SetValue("built", 1);
 
 		if (this.UpgradeStationExists()) {
 			PrintToServer("[RTU][UpgradesController] Upgrade station already exists, skipping build.");
 			return;
 		}
-		// Create, spawn, and position the upgrade station
+
+		// Create, spawn, and position the upgrade station (position is arbitrary)
 		int funcUpgrade = CreateEntityByName("func_upgradestation");
 		DispatchKeyValueVector(funcUpgrade, "origin", center);
 		if (!DispatchSpawn(funcUpgrade)) { return; }
@@ -261,69 +248,66 @@ methodmap UpgradesController < StringMap {
 	}
 
 	public bool UpgradeStationExists() {
-		bool exists = FindEntityByClassname(-1, "func_upgradestation") != -1;
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Checking for existing upgrade station: %s.", exists ? "found" : "not found");
-		return exists;
+		return FindEntityByClassname(-1, "func_upgradestation") != -1;
 	}
 
 	// Accompany state changes with appropriate SFX
 	public void PlayRandom(ArrayList soundArray) {
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Playing random sound from provided array.");
-
 		int rand = GetRandomInt(0, soundArray.Length - 1)
 		char sound[PLATFORM_MAX_PATH];
 		soundArray.GetString(rand, sound, sizeof(sound));
 		EmitSoundToAll(sound);
 	}
 
+	// Returns true if map-enabled or plugin-enabled, but does not distinguish
 	property bool Enabled {
 		public get() {
-			bool enabled = this.State == UPGRADES_STATE_ENABLED_BY_MAP
+			return this.State == UPGRADES_STATE_ENABLED_BY_MAP
 				|| this.State == UPGRADES_STATE_ENABLED_BY_RTU;
-
-			if (this.Debug) PrintToServer("[RTU][UpgradesController] Checking if upgrades are enabled (current state: %d).", enabled ? "yes" : "no");
-
-			return enabled;
 		}
+		// private set via `Enable` and `Disable` methods
 	}
 
-	property bool Debug {
-		public get() {
-			int debug;
-			this.GetValue("debug", debug);
-
-			if (this.Debug) PrintToServer("[RTU][UpgradesController] Retrieving debug property: %s.", debug ? "true" : "false");
-
-			return debug == 1;
-		}
-
+	// Used to prevent re-initialization
+	property bool Ready {
+		public get() { return this.ContainsKey("ready"); }
+		// private set during `OnMapStarted`
 	}
+
+	// When true, prints additional messages to server console
+
 	// Whether resupply lockers have been hooked to show the upgrades menu
 	property bool Hooked {
 		public get() {
 			int hooked;
 			this.GetValue("hooked", hooked);
-			if (this.Debug) PrintToServer("[RTU][UpgradesController] Retrieving hooked property: %s.", hooked ? "true" : "false");
 			return hooked == 1;
 		}
+		// private set during `HookUpgradesMenuToResupply`
+	}
 
-		public set(bool isHooked) {
-			this.SetValue("hooked", isHooked ? 1 : 0);
+	property bool Built {
+		public get() {
+			int built;
+			this.GetValue("built", built);
+			return built == 1;
 		}
+		// private set during `BuildUpgradeStation`
 	}
 
 	// Current upgrades state. Assigns and returns UNSET by default
 	property UPGRADES_STATE State {
 		public get() {
 			UPGRADES_STATE state;
-			PrintToServer("[RTU][UpgradesController] Retrieving current upgrades state.");
+
+			// Default
 			if (!this.ContainsKey("state")) {
-				PrintToServer("[RTU][UpgradesController] No state found, assigning UNSET.");
 				this.SetValue("state", UPGRADES_STATE_UNSET);
+				return UPGRADES_STATE_UNSET;
 			}
 
 			this.GetValue("state", state)
-			PrintToServer("[RTU][UpgradesController] Current upgrades state is %d.", state);
+			char stateName[MAX_UPGRADES_STATE_NAME];
 			return state;
 		}
 
@@ -335,19 +319,14 @@ methodmap UpgradesController < StringMap {
 			bool validState = this.ValidUpgradesState(newState);
 
 			if (validState) this.SetValue("state", newState);
-
-			if (this.Debug) {
-				if (validState) PrintToServer("[RTU][UpgradesController] Setting upgrades state to %s (was %s).", newName, currentName);
-				else PrintToServer("[RTU][UpgradesController] Attempted to set invalid upgrades state %s (was %s).", newName, currentName);
-			}
 		}
 	}
 
 	// Ensure value is within enum bounds
 	public bool ValidUpgradesState(UPGRADES_STATE state) {
-		bool valid = state >= UPGRADES_STATE_UNSET && state <= UPGRADES_STATE_DISABLED_BY_RTU;
-		if (this.Debug) PrintToServer("[RTU][UpgradesController] Validating upgrades state %d: %s.", state, valid ? "valid" : "invalid");
-		return valid;
+		if (state < UPGRADES_STATE_UNSET) return false;
+		if (state > UPGRADES_STATE_DISABLED_BY_RTU) return false;
+		return true;
 	}
 
 	public void StringFromUpgradeState(UPGRADES_STATE state, char[] buffer, int bufferSize) {
@@ -371,57 +350,34 @@ methodmap UpgradesController < StringMap {
 }
 
 // The following methods, used by SDKHooks and Timers, could not be contained
-// within the methodmap, as they are required to be static global functions
+// within the methodmap, as they are required to be static global functions, and
+// as a result have been given verbose names to reduce collision
 
 // Introducing some trickiness due to the menu-opening chat command
 // The chat command opens the menu but leaves the player in a bad state
 // The bad state prevents the resupply locker triggers from working correctly
 // This bad state can be resolved by cycling a netprop with a timer
+// Without a timer, an internal variable can't observe the change
 // For more info search the TF2 source code for `m_bWasInZone`
 void OnRTUUpgradeTriggerStartTouchPost(int trigger, int client) {
-	PrintToServer("[RTU] OnRTUUpgradeTriggerStartTouchPost fired for client %d", client);
-	if (!client || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client)) { return; }
+	// if (!client || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client)) { return; }
+	if (!ValidClient(client)) return;
 
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
-	CreateTimer(0.1, Timer_ShowUpgradesMenu, client);
+	CreateTimer(0.1, Timer_ShowRTUUpgradesMenu, client);
 }
 
 void OnRTUUpgradeTriggerEndTouchPost(int trigger, int client) {
-	PrintToServer("[RTU] OnRTUUpgradeTriggerEndTouchPost fired for client %d", client);
-	if (!client || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client)) { return; }
+	// PrintToServer("[RTU] OnRTUUpgradeTriggerEndTouchPost fired for client %d", client);
+	// if (!client || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client)) { return; }
+	if (!ValidClient(client)) return;
 
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 }
 
-Action Timer_ShowUpgradesMenu(Handle timer, int client) {
-	PrintToServer("[RTU] Timer_ShowUpgradesMenu fired for client %d", client);
+Action Timer_ShowRTUUpgradesMenu(Handle timer, int client) {
+	// PrintToServer("[RTU] Timer_ShowRTUUpgradesMenu fired for client %d", client);
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 1);
 
 	return Plugin_Handled;
 }
-	// public void LegacyPrecacheSFX() {
-		// SFX_UPGRADES_ENABLE.PushString("mvm/mvm_bought_in.wav");
-		// SFX_UPGRADES_ENABLE.PushString("vo/engineer_mvm_collect_credits01.mp3");
-		// SFX_UPGRADES_ENABLE.PushString("vo/heavy_mvm_collect_credits01.mp3");
-		// SFX_UPGRADES_ENABLE.PushString("vo/medic_mvm_collect_credits03.mp3");
-		// SFX_UPGRADES_ENABLE.PushString("vo/medic_mvm_collect_credits04.mp3");
-		// SFX_UPGRADES_ENABLE.PushString("vo/soldier_mvm_collect_credits01.mp3");
-		// SFX_UPGRADES_ENABLE.PushString("vo/soldier_mvm_collect_credits02.mp3");
-
-		// SFX_UPGRADES_DISABLE.PushString("vo/announcer_sd_monkeynaut_end_crash01.mp3");
-		// SFX_UPGRADES_DISABLE.PushString("vo/demoman_sf12_badmagic07.mp3")
-		// SFX_UPGRADES_DISABLE.PushString("mvm/mvm_player_died.wav");
-
-		// Precache all sounds
-		// for (int i = 0; i < SFX_UPGRADES_ENABLE.Length; i++) {
-		// 	char sound[PLATFORM_MAX_PATH];
-		// 	SFX_UPGRADES_ENABLE.GetString(i, sound, sizeof(sound));
-		// 	PrecacheSound(sound, true);
-		// }
-
-		// for (int i = 0; i < SFX_UPGRADES_DISABLE.Length; i++) {
-		// 	char sound[PLATFORM_MAX_PATH];
-		// 	SFX_UPGRADES_DISABLE.GetString(i, sound, sizeof(sound));
-		// 	PrecacheSound(sound, true);
-		// }
-	// }

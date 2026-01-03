@@ -1,7 +1,10 @@
+/**
+ * Rock The Upgrades: Account
+ * TODO: description
+ */
+
 #pragma newdecls required
 #pragma semicolon 1
-#include <tf2>
-#include <tf2_stocks>
 
 // A support for Account to track spending per class
 enum struct ClassData {
@@ -19,7 +22,7 @@ enum struct ClassData {
 // A data structure used by bank to track player currency
 enum struct Account {
 	// Player-unique identifier, useful when reconnecting
-	char steamID[MAX_AUTHID_LENGTH + 1];
+	char accountKey[MAX_AUTHID_LENGTH + 1];
 
     // Client ID for reference
     int client;
@@ -34,8 +37,8 @@ enum struct Account {
 	TFClassType currentClass;
 	ClassData classData[10]; // starts at 1; remember to offset
 
-	void Init(int client, char steamID[MAX_AUTHID_LENGTH], float startingCurrency) {
-		strcopy(this.steamID, sizeof(this.steamID), steamID);
+	void Init(int client, char accountKey[MAX_AUTHID_LENGTH], float startingCurrency) {
+		strcopy(this.accountKey, sizeof(this.accountKey), accountKey);
 		this.client = client;
 		this.earned = startingCurrency;
 		this.connected = true;
@@ -64,22 +67,13 @@ enum struct Account {
 	}
 
 	void SetClass(TFClassType classType) {
-		if (classType == this.currentClass) return;
-
-		// char className[MAX_NAME_LENGTH];
-		// if (!TF2_ClassTypeToName(classType, this.currentClass, className)) {
-		// 	PrintToServer("[RTU][Bank] Warning: Attempted to set invalid class type %d for client %d", classType, this.client);
-		// 	return;
-		// }
-		// char currentClassName[MAX_NAME_LENGTH];
-		// TF2_ClassTypeToName(this.currentClass, this.currentClass, currentClassName);
-		// PrintToServer("[RTU][Bank] Changing class for client %d from %s to %s", this.client, currentClassName, className);
-		this.currentClass = classType;
+		if (classType != this.currentClass) this.currentClass = classType;
 	}
 
 	// NOTE: I would use TFClass_Unknown but that might represent Spectators
 	// TODO: i bet that using -1 will break since the enum doesnt contain that value
 	float Balance(TFClassType classType = view_as<TFClassType>(-1)) {
+		// Default to current class
 		if (classType == view_as<TFClassType>(-1))
 			 classType = this.currentClass;
 
@@ -102,7 +96,7 @@ enum struct Account {
 			"[RTU][BANK] Account Info\nClient %3d - %s\nSteamID: %s\nEarned: %.2f\n",
 			this.client,
 			clientName,
-			this.steamID,
+			this.accountKey,
 			this.earned
 		);
 
@@ -134,12 +128,14 @@ enum struct Account {
 	char[] ToRow() {
 		char row[128];
 		char className[MAX_NAME_LENGTH];
+
 		TF2_ClassTypeToName(this.currentClass, className);
+
 		Format(
 			row,
 			sizeof(row),
-			"%18s|%9d|%12s|%9s|%9.2f|%9.2f|%9.2f|%9.2f\n",
-			this.steamID,
+			"%21s|%9d|%12s|%9s|%9.2f|%9.2f|%9.2f|%9.2f\n",
+			this.accountKey,
 			this.client,
 			this.connected ? "true" : "false",
 			className,
@@ -148,6 +144,7 @@ enum struct Account {
 			this.classData[this.currentClass].burnt,
 			this.Balance()
 		);
+
 		return row;
 	}
 }
@@ -155,7 +152,7 @@ enum struct Account {
 // Returns the class name string for a given TFClassType
 bool TF2_ClassTypeToName(TFClassType classType, char className[MAX_NAME_LENGTH], TFClassType current=view_as<TFClassType>(-1)) {
     if (classType < TFClass_Scout || classType > TFClass_Engineer) {
-		className =  "INVALID";
+		className = "INVALID";
 		return false;
 	}
 
@@ -172,7 +169,7 @@ bool TF2_ClassTypeToName(TFClassType classType, char className[MAX_NAME_LENGTH],
         default:                 return false; // TODO: handle spectator?
     }
 
-	// Decorate output to indicate 'current' during iterations
+	// Decorate output to indicate active class during iterations
 	if (current != view_as<TFClassType>(-1) && current == classType) StrCat(className, sizeof(className), "*");
 
 	return true;

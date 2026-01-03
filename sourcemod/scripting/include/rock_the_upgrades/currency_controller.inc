@@ -1,3 +1,9 @@
+/**
+ * Rock The Upgrades: Currency Controller
+ * TODO: description
+ * TODO: methodmap
+ */
+
 #include "bank.inc"
 
 ConVar g_Cvar_CurrencyOnKillMin;
@@ -22,7 +28,6 @@ void InitCurrencyController() {
     InitCurrencyConVars();
     HookCurrencyEvents();
 
-	bank = new Bank();
 	RevengeTracker = new StringMap();
 }
 
@@ -72,9 +77,9 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 
 	float reward = CurrencyOnKill(revenge);
 
-	if (killer)   bank.Deposit(reward, killer);
-	if (assister) bank.Deposit(reward, assister);
-	if (victim)   bank.Burn(DeathPenalty(victim), victim);
+	if (ValidClient(killer))   bank.Deposit(reward, killer);
+	if (ValidClient(assister)) bank.Deposit(reward, assister);
+	if (ValidClient(victim))   bank.Burn(DeathPenalty(victim), victim);
 
 	return Plugin_Continue;
 }
@@ -91,8 +96,8 @@ Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)
 	int assister = GetClientOfUserId(event.GetInt("assister"));
 	float reward = CurrencyForDestroyedObject(event);
 
-	if (attacker) bank.Deposit(reward, attacker);
-	if (assister) bank.Deposit(reward, assister);
+	if (ValidClient(attacker)) bank.Deposit(reward, attacker);
+	if (ValidClient(assister)) bank.Deposit(reward, assister);
 
 	return Plugin_Continue;
 }
