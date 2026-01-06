@@ -252,6 +252,8 @@ void HookEvents() {
 	HookEvent("teamplay_round_start", Event_TeamplayRoundStart, EventHookMode_Post);
 	HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
 	HookEvent("player_hurt", Event_PlayerHurt, EventHookMode_Post);
+	HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Post);
+	HookEvent("teamplay_win_panel", Event_TeamplayWinPanel, EventHookMode_Post);
 	HookEvent("post_inventory_application", Event_PostInventoryApplication, EventHookMode_Post);
 }
 
@@ -293,13 +295,35 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 
 // Bank tracks currency per class - inform it of all class changes
 Action Event_PlayerChangeClass(Event event, const char[] name, bool dontBroadcast) {
+	PrintToServer("[RTU} <Player Change Class>");
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (IsFakeClient(client)) return Plugin_Continue;
 
 	TFClassType classType = view_as<TFClassType>(event.GetInt("class"));
+
 	bank.SetClass(client, classType);
 
 	return Plugin_Continue;
+}
+
+Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
+	PrintToServer("[RTU} <Player Spawn>");
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (IsFakeClient(client)) return Plugin_Continue;
+
+    if (bank.NeedsRevert(client)) CreateTimer(0.1, Timer_RevertClient, client);//upgrades.ResetPlayer(client);
+
+	return Plugin_Continue;
+}
+
+Action Timer_RevertClient(Handle timer, any client) {
+	PrintToServer("[RTU} <Revert Client>");
+
+	// Very important for these two events to happen together
+	upgrades.ResetPlayer(client);
+	bank.Revert(client);
+
+	return Plugin_Stop;
 }
 
 // Reset on round start unless configured otherwise. This may be firing too often.
@@ -307,7 +331,14 @@ Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadca
 	if (g_Cvar_MultiStageReset.IntValue == 1) {
 		bank.ResetAccounts();
 		upgrades.Reset(); // also attempts to force-close upgrade menus
+		pocket.Unlock();
 	}
+
+	return Plugin_Continue;
+}
+
+Action Event_TeamplayWinPanel(Event event, const char[] name, bool dontBroadcast) {
+	pocket.Lock(.message="until next round");
 
 	return Plugin_Continue;
 }
@@ -319,9 +350,6 @@ Action Event_PostInventoryApplication(Event event, const char[] name, bool dontB
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
 	if (!ValidClient(client)) return Plugin_Continue;
-
-	if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
-		return Plugin_Continue;
 
 	// Try to resolve some PocketUpgrades command wierdness
 	if (!bank.ResolveDelta(client)) SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);

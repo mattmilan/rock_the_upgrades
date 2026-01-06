@@ -194,6 +194,12 @@ methodmap Bank < StringMap  {
 		this.Sync(client);
 	}
 
+	public bool NeedsRevert(int client) {
+		Account a;
+		this.Fetch(client, a);
+		return a.NeedsRevert();
+	}
+
 	// Centralizes logic which had been duplicated among transaction-related methods (Deposit, Withdrawal, etc)
 	// NOTE: Attempted and failed to execute callback functions defined within this methodmap
 	public void Transaction(float amount, int client, BANK_TRANSACTION transaction) {
@@ -219,7 +225,7 @@ methodmap Bank < StringMap  {
 		// enforce currency limit (disabled by default)
 		a.earned = this.LimitCurrency(a.earned);
 
-		// Save changes
+		// Save changes before syncing
 		this.SetArray(a.accountKey, a, sizeof(Account));
 
 		// Match the client's currency to account balance
@@ -250,7 +256,12 @@ methodmap Bank < StringMap  {
 	public void Forgive(float amount, int client) {
 		this.Burn(-amount, client);
 	}
-
+	public void Revert(int client) {
+		Account a;
+		this.Fetch(client, a);
+		a.Revert();
+		this.SetArray(a.accountKey, a, sizeof(Account));
+	}
 	// Deposit money to all accounts whether connected or not. Optional team filter
 	public void DepositAll(float amount, int team=-1) {
 		// Late joiners can benefit from these deposits
@@ -463,10 +474,14 @@ methodmap Bank < StringMap  {
 
 		bool accountFound = this.Fetch(client, a);
 
-		PrintToServer(
+		ReplyToCommand(client,
 			accountFound ?
 				a.ToString() :
 		 		"[RTU][Bank] No account found for Client: %d", client);
+		// PrintToServer(
+		// 	accountFound ?
+		// 		a.ToString() :
+		//  		"[RTU][Bank] No account found for Client: %d", client);
 	}
 
 	// Debug

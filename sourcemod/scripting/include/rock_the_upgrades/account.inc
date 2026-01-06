@@ -11,11 +11,29 @@ enum struct ClassData {
 	float spent;
 	float burnt;
 
-	// TODO: track weapons
+	// Indicate whether class was played and may need a reset
+	// bool played;
+
+	// whether or not we believe this class has any upgrades to refund
+	// bool upgraded;
+
+	// Revert upgrades for current class after next spawn. Set on every reset
+	bool markedForRevert;
+
+	// TODO: track weapons upgraded per class
+	// MAGIC NUMBER 16: max # of weapons a single class could juggle?
+	// int weaponsUpgraded[16];
+
 
 	void Reset() {
+		// Nothing to reset if nothing spent
+		if (this.spent < 0.001) return;
+
 		this.spent = 0.0;
 		this.burnt = 0.0;
+		// this.played = false;
+		// this.upgraded = false;
+		this.markedForRevert = true;
 	}
 }
 
@@ -33,9 +51,9 @@ enum struct Account {
 	// track earnings independent of class
 	float earned;
 
-	// track refundable and non-refundable spending per class
+	// track refundable and non-refundable spending per class. For interation:
 	TFClassType currentClass;
-	ClassData classData[10]; // starts at 1; remember to offset
+	ClassData classData[10];
 
 	void Init(int client, char accountKey[MAX_AUTHID_LENGTH], float startingCurrency) {
 		strcopy(this.accountKey, sizeof(this.accountKey), accountKey);
@@ -58,16 +76,35 @@ enum struct Account {
 		return this.classData[classType].burnt;
 	}
 
+	bool NeedsRevert(TFClassType classType = view_as<TFClassType>(-1)) {
+		if (classType == view_as<TFClassType>(-1)) classType = this.currentClass;
+		return this.classData[classType].markedForRevert;
+	}
+
+	bool Revert() {
+		this.classData[this.currentClass].markedForRevert = false;
+		this.classData[this.currentClass].spent = 0.0;
+
+		return true;
+	}
+
 	void Reset(float startingCurrency) {
 		this.earned = startingCurrency;
 
 		for (TFClassType classType = TFClass_Scout; classType <= TFClass_Engineer; classType++) {
 			this.classData[classType].Reset();
+			if (classType == this.currentClass) {
+				this.classData[classType].markedForRevert = false;
+			}
 		}
 	}
 
 	void SetClass(TFClassType classType) {
-		if (classType != this.currentClass) this.currentClass = classType;
+		this.currentClass = classType;
+	}
+
+	void Refund() {
+		this.classData[this.currentClass].spent = 0.0;
 	}
 
 	// NOTE: I would use TFClass_Unknown but that might represent Spectators
@@ -101,9 +138,9 @@ enum struct Account {
 		);
 
 		// Sub Header
-		StrCat( buffer, sizeof(buffer), "----------------------------------------\n");
-		StrCat( buffer, sizeof(buffer), "Class    |  Spent  |  Burnt  | Balance  \n");
-		StrCat( buffer, sizeof(buffer), "----------------------------------------\n");
+		StrCat( buffer, sizeof(buffer), "---------------------------------------------------------\n");
+		StrCat( buffer, sizeof(buffer), "Class    | Revert? | Spent  |  Burnt  | Balance \n");
+		StrCat( buffer, sizeof(buffer), "---------------------------------------------------------\n");
 
 		// Rows
 		for (TFClassType classType = TFClass_Scout; classType <= TFClass_Engineer; classType++) {
@@ -111,13 +148,16 @@ enum struct Account {
 			Format(
 				row,
 				sizeof(row),
-				"%9s|%9.2f|%9.2f|%9.2f\n",
+				"%9s|%8s|%9.2f|%9.2f|%9.2f\n",
 				className,
+				// this.classData[classType].played ? "true" : "",
+				this.classData[classType].markedForRevert ? "true" : "",
 				this.classData[classType].spent,
 				this.classData[classType].burnt,
 				this.Balance(classType)
 			);
 
+			// Join
 			StrCat(buffer, sizeof(buffer), row);
 		}
 
