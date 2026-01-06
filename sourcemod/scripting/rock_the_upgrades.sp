@@ -64,41 +64,83 @@
  * Version: $Id$
  */
 
-// SourceMod Boilerplate
+/**
+ * TOC
+ * ============================================================================
+ * t.1 Includes
+ * t.2 Plugin Info
+ * t.3 Global Variables
+ * t.4 Forwards
+ * t.5 Initializers
+ * t.6 Events
+ * t.6 Commands
+ * t.7 Voting
+ * t.8 Helpers
+ */
+
+/**
+ * t.1 Includes
+ * ============================================================================
+ */
+
+// SM/TF2 Boilerplate
 #include <sourcemod>
 #include <sdktools>
 #include <sdkhooks>
 #include <tf2>
 
 // Facilitates the removal of upgrades during resets
-#include <tf2attributes>
+// #include <tf2attributes>
 
 // Enable/Disable upgrade system, and easily reset entity upgrades
-#include <rock_the_upgrades/toggle_upgrades>
+#include <rock_the_upgrades/upgrades_controller>
 
 // Manages configurable currency gains and losses across various events
 #include <rock_the_upgrades/currency_controller>
 
+// Persistent, multi-target timer
+#include <rock_the_upgrades/combat_timer>
+
+// Allows upgrade menu access via chat command
+#include <rock_the_upgrades/pocket_upgrades>
+
 #pragma semicolon 1
 #pragma newdecls required
 
+/**
+ * t.2 Plugin Info
+ * ===========================================================================
+ */
+
 public Plugin myinfo = {
-	name = "Rock The Upgrades (or Freaky Fair Anywhere)",
+	name = "Rock The Upgrades (aka Freaky Fair Anywhere)",
 	author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
 	version = SOURCEMOD_VERSION,
 	url = "https://github.com/mattmilan/rock_the_upgrades"
 };
 
+/**
+ * t.3 Global Variables
+ * ==========================================================================
+ */
+
 ConVar g_Cvar_VoteThreshold;
 ConVar g_Cvar_MultiStageReset;
 ConVar g_Cvar_AutoEnableThreshold;
-ConVar g_Cvar_PocketUpgrades;
 
-bool WaitingForPlayers; 		 // Disallows voting while "Waiting for Players"
-int PlayerCount;				 // Number of connected clients (excluding bots)
-bool RTULateLoad;				 // Might be needed to get SteamIDs in lateload
-ArrayList Votes;				 // List of clients who have voted
+bool WaitingForPlayers; 	 // Disallows voting while "Waiting for Players"
+int PlayerCount;			 // Number of connected clients (excluding bots)
+bool RTULateLoad;			 // Might be needed to get SteamIDs in lateload
+ArrayList Votes;			 // List of clients who have voted
+UpgradesController upgrades; // Manages enabling/disabling/resetting upgrades
+PocketUpgrades pocket;	 	 // Access upgrades menu via chat command
+CombatTimer combatTimer;	 // Manages persistent combat timers for all human clients
+
+/**
+ * t.4 Forwards
+ * =========================================================================
+ */
 
 // TODO: might not be needed, requires exploration
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
@@ -108,11 +150,18 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 public void OnPluginStart() {
 	// plugin setup
-	Votes = new ArrayList();
-	InitCurrencyController();
 	InitConvars();
 	HookEvents();
 	RegisterCommands();
+	Votes = new ArrayList();
+	// CombatTimes = new StringMap();
+
+	// included setup
+	InitCurrencyController();
+	upgrades = new UpgradesController();
+	upgrades.OnPluginStarted();
+	combatTimer.Init();
+	pocket.Init(combatTimer);
 
 	// boilerplate configs
 	LoadTranslations("common.phrases");
@@ -122,42 +171,56 @@ public void OnPluginStart() {
 	if (RTULateLoad) HandleLateLoad();
 }
 
-// Clean up if the plugin is unloaded/reloaded
 public void OnPluginEnd() {
+	upgrades.OnPluginEnded();
 	Votes.Close();
+	combatTimer.Stop();
 	CloseCurrencyController();
 }
 
 public void OnMapStart() {
-	PrintToServer("[RTU] Map Start");
-	bank.PrintAccounts();
  	PlayerCount = 0;
 	WaitingForPlayers = true;
 	RevengeTracker.Clear(); // from currency_controller
  	Votes.Clear();
-	bank.Clear();
-	InitToggleUpgrades();
+	combatTimer.Start();
+
+	if (bank != INVALID_HANDLE) bank.Close();
+	bank = new Bank();
+
+	upgrades.OnMapStarted();
+}
+
+public void OnMapEnd() {
+	pocket.Reset();
+	combatTimer.Stop();
 }
 
 // Simply increment voting threshold. Continued in `OnClientAuthorized`
 public void OnClientConnected(int client) {
-	if (IsFakeClient(client)) { return; }
+	if (IsFakeClient(client)) return;
 
 	PlayerCount++;
 }
 
-// Bank requires a unique trusted identifier which is made available here
+// Bank requires a unique trusted identifier which is now available
 public void OnClientAuthorized(int client) {
-	if (IsFakeClient(client)) { return; }
+	if (IsFakeClient(client)) return;
 
 	bank.Connect(client);
 }
 
-// NOTE: The vote might pass if a player disconnects without voting
+// NOTE: We count votes because the vote might pass if a player disconnects without voting
 public void OnClientDisconnect(int client) {
-	if (IsFakeClient(client)) { return; }
+	if (IsFakeClient(client)) return;
+
+	// Clean up damage timer
+	char accountKey[MAX_AUTHID_LENGTH];
+	bank.GetAccountKey(client, accountKey);
+	combatTimer.Set(accountKey, -1);
 
 	bank.Disconnect(client);
+
 	PlayerCount--;
 	RemoveVote(client);
 	CountVotes();
@@ -171,20 +234,143 @@ public void TF2_OnWaitingForPlayersStart() {
 // Re-allow voting once waiting is complete, and trigger optional Auto-Enable
 public void TF2_OnWaitingForPlayersEnd() {
     WaitingForPlayers = false;
-	if (g_Cvar_AutoEnableThreshold.IntValue <= 0) return;
-	if (PlayerCount < g_Cvar_AutoEnableThreshold.IntValue) return;
-	if (UpgradesEnabled()) return;
-
-	PrintToChatAll("[RTU] %t", "RTU AutoEnable");
-	bank.Sync();
-	EnableUpgrades(.silent=true);
+	AttemptAutoEnable();
 }
 
-// Player command - attempts to vote. Client validation handled upstream
+/**
+ * t.5 Initializers
+ * =========================================================================
+ */
+
+void InitConvars() {
+	g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
+	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
+	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "0.8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
+}
+
+void HookEvents() {
+	HookEvent("teamplay_round_start", Event_TeamplayRoundStart, EventHookMode_Post);
+	HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
+	HookEvent("player_hurt", Event_PlayerHurt, EventHookMode_Post);
+	HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Post);
+	HookEvent("teamplay_win_panel", Event_TeamplayWinPanel, EventHookMode_Post);
+	HookEvent("post_inventory_application", Event_PostInventoryApplication, EventHookMode_Post);
+}
+
+void RegisterCommands() {
+	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
+	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
+	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
+	RegAdminCmd("rtu_pay", Command_RTUPay, ADMFLAG_GENERIC, "Debug: Pay 100 currency to the caller");
+	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
+	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");
+	RegAdminCmd("rtu_reset", Command_RTUReset, ADMFLAG_GENERIC, "Remove all upgrades and currency but leave the upgrade system enabled.");
+}
+
+/**
+ * t.6 Events
+ * =========================================================================
+ */
+
+Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
+	if (!upgrades.Enabled) return Plugin_Continue;
+
+	int clients[2];
+	clients[0] = GetClientOfUserId(event.GetInt("attacker"));
+	clients[1] = GetClientOfUserId(event.GetInt("userid"));
+
+	char accountKey[MAX_AUTHID_LENGTH];
+
+	for (int i = 0; i < 2; i++) {
+		int client = clients[i];
+		if (!ValidClient(client)) continue;
+
+		bank.GetAccountKey(client, accountKey);
+		combatTimer.Set(accountKey);
+		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
+	}
+
+	return Plugin_Continue;
+}
+
+// Bank tracks currency per class - inform it of all class changes
+Action Event_PlayerChangeClass(Event event, const char[] name, bool dontBroadcast) {
+	PrintToServer("[RTU} <Player Change Class>");
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (IsFakeClient(client)) return Plugin_Continue;
+
+	TFClassType classType = view_as<TFClassType>(event.GetInt("class"));
+
+	bank.SetClass(client, classType);
+
+	return Plugin_Continue;
+}
+
+Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
+	PrintToServer("[RTU} <Player Spawn>");
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (IsFakeClient(client)) return Plugin_Continue;
+
+    if (bank.NeedsRevert(client)) CreateTimer(0.1, Timer_RevertClient, client);//upgrades.ResetPlayer(client);
+
+	return Plugin_Continue;
+}
+
+Action Timer_RevertClient(Handle timer, any client) {
+	PrintToServer("[RTU} <Revert Client>");
+
+	// Very important for these two events to happen together
+	upgrades.ResetPlayer(client);
+	bank.Revert(client);
+
+	return Plugin_Stop;
+}
+
+// Reset on round start unless configured otherwise. This may be firing too often.
+Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
+	if (g_Cvar_MultiStageReset.IntValue == 1) {
+		bank.ResetAccounts();
+		upgrades.Reset(); // also attempts to force-close upgrade menus
+		pocket.Unlock();
+	}
+
+	return Plugin_Continue;
+}
+
+Action Event_TeamplayWinPanel(Event event, const char[] name, bool dontBroadcast) {
+	pocket.Lock(.message="until next round");
+
+	return Plugin_Continue;
+}
+
+// TODO: Guard against firing too often
+Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
+	if (!upgrades.Enabled) return Plugin_Continue;
+
+	int client = GetClientOfUserId(event.GetInt("userid"));
+
+	if (!ValidClient(client)) return Plugin_Continue;
+
+	// Try to resolve some PocketUpgrades command wierdness
+	if (!bank.ResolveDelta(client)) SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
+
+	return Plugin_Continue;
+}
+
+/**
+ * t.6 Commands
+ * =========================================================================
+ */
+
+// Player combo command - either start a vote or open the upgrades menu
 Action Command_RTU(int client, int args) {
 	if (client <= 0) PrintToServer("[RTU] Command `rtu` is client-only.");
-	else if (UpgradesEnabled()) ShowUpgradesMenu(client);
-	else Vote(client);
+	else if (!upgrades.Enabled) Vote(client);
+	else {
+		char accountKey[MAX_AUTHID_LENGTH];
+		bank.GetAccountKey(client, accountKey);
+		pocket.Show(client, accountKey);
+	}
 
 	return Plugin_Handled;
 }
@@ -205,11 +391,11 @@ Action Command_RTUBanks(int client, int args) {
 
 // Admin command - skip voting and enable immediately
 Action Command_RTUEnable(int client, int args) {
-	if (UpgradesEnabled()) {
+	if (upgrades.Enabled) {
 		ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled");
 	} else {
 		bank.Sync();
-		EnableUpgrades();
+		upgrades.Enable(); // reports enable to chat
 	}
 
 	return Plugin_Handled;
@@ -218,12 +404,12 @@ Action Command_RTUEnable(int client, int args) {
 // Admin command - disable immediately
 // TODO: Determine and support cases where we would not want to reset (doubhtful)
 Action Command_RTUDisable(int client, int args) {
-	if (!UpgradesEnabled()) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
+	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
 	else {
 		Votes.Clear();
 		bank.ResetAccounts();
-		ResetUpgrades(.silent = true);
-		DisableUpgrades();
+		upgrades.Reset(.silent = true);
+		upgrades.Disable(); // reports disable to chat
 	}
 
 	return Plugin_Handled;
@@ -231,10 +417,10 @@ Action Command_RTUDisable(int client, int args) {
 
 // Admin command - revert all gains without disabling the upgrade system
 Action Command_RTUReset(int client, int args) {
-	if (!UpgradesEnabled()) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
+	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
 	else {
 		bank.ResetAccounts();
-		ResetUpgrades();
+		upgrades.Reset(); // reports reset to chat
 	}
 
 	return Plugin_Handled;
@@ -262,6 +448,7 @@ Action Command_RTUPay(int client, int args) {
 	// Pay self if no target specified
 	if (!target[0] && client > 0) {
 		bank.Deposit(amount, client);
+		ReplyToCommand(client, "[RTU] Paid %f to yourself", amount);
 	} else if (!bank.DepositTarget(target, amount, .replyTo=client)) {
 		ReplyToCommand(client, "[RTU] Could not find player %s", target);
 	} else {
@@ -270,85 +457,10 @@ Action Command_RTUPay(int client, int args) {
 
 	return Plugin_Handled;
 }
-
-
-void HookEvents() {
-	HookEvent("teamplay_round_start", Event_TeamplayRoundStart, EventHookMode_Post);
-	HookEvent("player_initial_spawn", Event_PlayerInitialSpawn, EventHookMode_Post);
-	HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
-}
-
-// Bank tracks currency per class - inform it of all class changes
-Action Event_PlayerChangeClass(Event event, const char[] name, bool dontBroadcast) {
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (IsFakeClient(client)) { return Plugin_Continue; }
-
-	TFClassType classType = view_as<TFClassType>(event.GetInt("class"));
-	bank.SetClass(client, classType);
-
-	return Plugin_Continue;
-}
-
-// Synchronize currency as soon as it's safe; ie once the clients `m_nCurrency` prop exists
-Action Event_PlayerInitialSpawn(Event event, const char[] name, bool dontBroadcast) {
-	int client = event.GetInt("index");
-	if (IsFakeClient(client)) { return Plugin_Continue; }
-	// UpdateAccountTFClass(event);
-	// if (UpgradesEnabled())
-	bank.Sync(client);
-
-	return Plugin_Continue;
-}
-
-// Reset on round start unless configured otherwise. This may be firing too often.
-Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
-	if (g_Cvar_MultiStageReset.IntValue == 1) {
-		bank.ResetAccounts();
-		ResetUpgrades();
-	}
-
-	return Plugin_Continue;
-}
-
-void InitConvars() {
-	g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
-	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
-	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "0.8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
-	g_Cvar_PocketUpgrades = CreateConVar("rtu_pocket_upgrades", "1", "Enable or disable upgrade menu access via chat commands [1, 0,1]", 0, true, 0.0, true, 1.0);
-}
-
-void RegisterCommands() {
-	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
-	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
-	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
-	RegAdminCmd("rtu_pay", Command_RTUPay, ADMFLAG_GENERIC, "Debug: Pay 100 currency to the caller");
-	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
-	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");
-	RegAdminCmd("rtu_reset", Command_RTUReset, ADMFLAG_GENERIC, "Remove all upgrades and currency but leave the upgrade system enabled.");
-}
-
-// Open the upgrades menu. Closing the menu is out of scope and handled in-game
-// NOTE: leaves the m_bInUpgradeZone prop set to 1 - requires special handling,
-//       otherwise the menu will not reopen (except on every respawn)
-void ShowUpgradesMenu(int client) {
-	if (g_Cvar_PocketUpgrades.IntValue == 0) {
-		ReplyToCommand(client, "[RTU] Command disabled by server configuration");
-		return;
-	}
-
-	// m_bWasInZone may need to be reset, this is the first step towards that
-	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
-
-	// using a timer so that m_bWasInZone has time to update
-	CreateTimer(0.1, OpenUpgradesMenu, client);
-}
-
-Action OpenUpgradesMenu(Handle timer, any client) {
-	if (client && IsClientInGame(client))
-		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 1);
-
-	return Plugin_Handled;
-}
+/**
+ * t.7 Voting
+ * =========================================================================
+ */
 
 // Add a vote and trigger a count
 void Vote(int client) {
@@ -378,7 +490,7 @@ void CountVotes() {
 	if (WaitingForPlayers) { return; }
 
 	// No need to vote
-	if (UpgradesEnabled()) { return; }
+	if (upgrades.Enabled) { return; }
 
 	// Invalid vote
 	if (PlayerCount < 1 || VotesNeeded() < 1) { return; }
@@ -386,7 +498,7 @@ void CountVotes() {
 	// Insufficient votes
 	if (Votes.Length < VotesNeeded()) { return; }
 
-	EnableUpgrades();
+	upgrades.Enable();
 	bank.Sync();
 }
 
@@ -405,7 +517,7 @@ bool VotePossible(int client) {
 	}
 
 	// No need to vote
-	if (UpgradesEnabled()) {
+	if (upgrades.Enabled) {
 		ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled");
 		return false;
 	}
@@ -419,9 +531,40 @@ bool VotePossible(int client) {
 	return true;
 }
 
-void HandleLateLoad() {
-	InitToggleUpgrades();
+// Duplicated in Bank module - consider centralizing
+bool ValidClient(int client, bool checkConnected=true, bool checkInGame=true, bool checkFake=true) {
+	// REQUIRED: within integer bounds
+	if (client < 1 || client > MaxClients) return false;
 
+	// OPTIONAL: connected
+	if (checkConnected && !IsClientConnected(client)) return false;
+
+	// OPTIONAL: in-game
+	if (checkInGame && !IsClientInGame(client)) return false;
+
+	// OPTIONAL: is human
+	if (checkFake && IsFakeClient(client)) return false;
+
+	return true;
+}
+
+/**
+ * t.8 Helpers
+ * =========================================================================
+ */
+
+// Automatically enable upgrades if enough players are present
+void AttemptAutoEnable(){
+	if (g_Cvar_AutoEnableThreshold.IntValue <= 0) return;
+	if (PlayerCount < g_Cvar_AutoEnableThreshold.IntValue) return;
+	if (upgrades.Enabled) return;
+
+	PrintToChatAll("[RTU] %t", "RTU AutoEnable");
+	bank.Sync();
+	upgrades.Enable(.silent=true);
+}
+
+void HandleLateLoad() {
 	// Ensures the voting threshold is reasonable
 	for (int i=1; i<=MaxClients; i++) {
 		if (IsClientConnected(i)) {

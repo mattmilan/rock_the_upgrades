@@ -1,79 +1,165 @@
-#pragma newdecls required
-#include <sourcemod>
-#include <tf2>
-#include <tf2_stocks>
-#include "account.inc"
+/**
+ * Rock The Upgrades: Bank (Aka Accounts Controller)
+ * TODO: description
+ */
 
-enum TRANSACTION {
-	BALANCE,
-	DEPOSIT,
-	WITHDRAW,
-	BURN,
-	TRANSACTION_COUNT
+#pragma newdecls required
+#include <rock_the_upgrades/account>
+#include <rock_the_upgrades/bank_config>
+
+// TODO: isolate via longer name
+enum BANK_TRANSACTION {
+	BANK_BANK_BALANCE,
+	BANK_DEPOSIT,
+	BANK_WITHDRAW,
+	BANK_BURN,
+	BANK_TRANSACTION_COUNT
 }
 
 ConVar g_Cvar_CurrencyStarting;
 ConVar g_Cvar_CurrencyMultiplier;
-// ConVar g_Cvar_CurrencyLimit;
-// ConVar g_Cvar_UpgradeCostMultiplier;
-
-// Maps currently connected clients to their SteamIDs
-ArrayList clientSteamIDs;
-
-// Tracks currency gained from objectives this round which will be combined with starting currency for late joiners
-float g_fCurrencyFromObjectives;
+ConVar g_Cvar_CurrencyLimit;
 
 // Invoke during `OnMapStart`
-void InitBankGlobals() {
-#if defined _bank_globals
-	return;
-#endif
-#define _bank_globals
-	// A mapping of currently connected clients to their respective SteamIDs
-	clientSteamIDs = new ArrayList(1, MaxClients + 1);
-
+void InitBankConvars() {
 	// Starting currency
 	g_Cvar_CurrencyStarting = CreateConVar("rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
 
 	// Global multiplier for all currency events
 	g_Cvar_CurrencyMultiplier = CreateConVar("rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
 
-	// Misc modifiers
-	// g_Cvar_UpgradeCostMultiplier = CreateConVar("rtu_upgrade_cost_multiplier", "1.0", "Multiplier for upgrade costs when RTU is activated. A value of zero provides free upgrades [1, 0..].", 0, true, 0.0, false);
-	// g_Cvar_CurrencyLimit = CreateConVar("rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
+	// Limit max currency gain to encourage strategic spending
+	g_Cvar_CurrencyLimit = CreateConVar("rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
 }
 
-// A bank is a glorified StringMap that maps SteamIDs to Accounts
-// The bank handles client connection and account management
-// The bank resets between maps, and supports reconnecting players
-// For performance, the bank maintains a separate mapping of Client -> SteamID
+/*
+	A bank is a glorified StringMap that maps SteamIDs (as accountKey) to Accounts
+	Account Keys fall back to client names if Steam Auth Servers are unreachable
+ 	The bank handles client connection and account management
+ 	The bank resets between maps, and supports reconnecting players
+ 	For performance, the bank caches SteamID lookups
+	TODO: DRY the skipping of the 'config' key
+*/
 methodmap Bank < StringMap  {
 	// Unassuming constructor
     public Bank() {
 		// TODO: call if uncalled (requires guard)
-		InitBankGlobals();
+		InitBankConvars();
 		StringMap accounts = new StringMap();
+
+		BankConfig config;
+		config.Init();
+		accounts.SetArray("config", config, sizeof(config));
+
 		return view_as<Bank>(accounts);
     }
 
 	public void Connect(int client) {
-		bool fake = IsFakeClient(client);
-		PrintToServer("[RTU][Bank] Connecting client %d fake=%b", client, fake);
-		// Grab SteamID
-		char steamID[MAX_AUTHID_LENGTH]; this.WriteSteamID(client, steamID);
+		// Maps client -> steamID (fallback: client name)
+		bool authorized = this.UpdateAccountKeys(client);
 
-		// Update Client SteamID mapping
-		clientSteamIDs.Set(client, steamID);
+		// Track steam auth server outages and recoveries
+		this.SetAuthServersReachable(authorized);
 
-		// Enroll new clients or reconnect existing ones
-		if (!this.ContainsKey(steamID)) this.Enroll(client, steamID);
-		else this.SetConnection(client, true);
+		// Create new accounts or reconnect existing ones
+		this.ConnectAccount(client);
 	}
 
-	// Sets account connection to false and reset spending (preserves earned)
+	// Mark account as disconnected. Account persists for current map
 	public void Disconnect(int client) {
-		// NOTE: no need to null-out clientSteamIDs entries (safe vs overwrites)
 		this.SetConnection(client, false);
+	}
+
+	// Client Name is used while auth servers are down - once restored, convert to SteamID
+	public void SetAuthServersReachable(bool reachable) {
+		BankConfig config;
+		this.GetArray("config", config, sizeof(config));
+
+		// When auth servers come back online
+		if (!config.steamAuthAvailable && reachable) {
+			char accountKey[MAX_AUTHID_LENGTH];
+
+			// convert client names to client steamIDs
+			for (int client = 1; client <= MaxClients; client++) {
+				if (!ValidClient(client)) continue;
+
+				bool authorized = GetClientAuthId(client, AuthId_SteamID64, accountKey, sizeof(accountKey));
+
+				if (!authorized) continue;
+
+				config.clientAccountKeys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
+			}
+		}
+
+		config.steamAuthAvailable = reachable;
+		this.SetArray("config", config, sizeof(config));
+	}
+
+	// Maintain a map of client -> SteamID to reduce network traffic to external auth servers
+	// While auth servers are down, Client Name is used instead (discouraged as spoofable)
+	// `SetAuthServersReachable` detects restoration and handles recovery
+	public bool UpdateAccountKeys(int client) {
+		// Buffer
+		char accountKey[MAX_AUTHID_LENGTH];
+
+		// Attempt read/write SteamID from external resource
+		bool authorized = GetClientAuthId(client, AuthId_SteamID64, accountKey, sizeof(accountKey));
+
+		// Fallback to client name (discouraged as spoofable but necessary if auth servers are down)
+		if (!authorized) GetClientName(client, accountKey, sizeof(accountKey));
+
+		// Update and save changes to mapping
+		BankConfig config;
+		this.GetArray("config", config, sizeof(config));
+		config.clientAccountKeys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
+		this.SetArray("config", config, sizeof(config));
+
+		// Advise caller if external resource was reachable
+		return authorized;
+	}
+
+	// Account Lookup via Client -> Account Key(SteamID|Name) -> Account
+	// Follow with `SetArray` to save changes
+	public bool Fetch(int client, Account a) {
+		// Buffer
+		char keyName[MAX_AUTHID_LENGTH];
+
+		// Primary Lookup: SteamID
+		this.GetAccountKey(client, keyName)
+
+		// Fallback: Client Name (discouraged as spoofable but necessary if auth servers are down)
+		if (keyName[0] == '\0') GetClientName(client, keyName, sizeof(keyName));
+
+		// Attempt to write account to param buffer and inform caller of success
+		return this.GetArray(keyName, a, sizeof(Account));
+	}
+
+	// Write string value to buffer param. Return false if empty
+	public bool GetAccountKey(int client, char accountKey[MAX_AUTHID_LENGTH]) {
+		BankConfig config;
+		this.GetArray("config", config, sizeof(config));
+	 	return config.clientAccountKeys.GetString(client, accountKey, MAX_AUTHID_LENGTH) > 0;
+	}
+
+	// Creates new accounts or reconnects existing ones
+	public void ConnectAccount(int client) {
+		// Buffer
+		char accountKey[MAX_AUTHID_LENGTH];
+
+		// Write to buffer
+		this.GetAccountKey(client, accountKey);
+
+		// Create | Reconnect
+		this.ContainsKey(accountKey) ?
+			this.SetConnection(client, true) :
+		    this.CreateAccount(client, accountKey);
+	}
+
+	// Updates the underlying stringmap with a new account for the given Account Key
+	public void CreateAccount(int client, char accountKey[MAX_AUTHID_LENGTH]) {
+		Account account;
+		account.Init(client, accountKey, this.StartingCurrency());
+		this.SetArray(accountKey, account, sizeof(Account));
 	}
 
 	// Marks an account as connected or disconnected (for visibility)
@@ -86,57 +172,37 @@ methodmap Bank < StringMap  {
 		// Reset spending but retain earned currency on disconnect
 		if (!connected) a.Reset(a.Earned());
 
-		this.SetArray(a.steamID, a, sizeof(Account));
+		// Save Changes
+		this.SetArray(a.accountKey, a, sizeof(Account));
 	}
 
 	// Accounts need to know the current class to maintain accurate balances
 	public void SetClass(int client, TFClassType classType) {
+		// Buffer
 		Account a;
+
+		// Find and copy account values
 		this.Fetch(client, a);
+
+		// Update account
 		a.SetClass(classType);
-		this.SetArray(a.steamID, a, sizeof(Account));
+
+		// Save Changes
+		this.SetArray(a.accountKey, a, sizeof(Account));
+
+		// Sync client currency with balance of changed class
 		this.Sync(client);
 	}
 
-	// Account Lookup via Client -> SteamID -> Account
-	// Follow with `SetArray` to save changes
-	public bool Fetch(int client, Account a) {
-		char steamID[MAX_AUTHID_LENGTH];
-
-		if (!this.WriteSteamID(client, steamID)) {
-			PrintToServer("[RTU][Bank] Failed to fetch account for client %d", client);
-			return false;
-		}
-
-		return this.GetArray(steamID, a, sizeof(Account));
-	}
-
-	// Write client SteamID to buffer param
-	public bool WriteSteamID(int client, char steamID[MAX_AUTHID_LENGTH]) {
-		if (!GetClientAuthId(client, AuthId_SteamID64, steamID, sizeof(steamID))) {
-			PrintToServer("[RTU][Bank] Failed to get SteamID for client %d", client);
-			return false;
-		}
-
-		return true;
-	}
-
-	// Enroll a new account for the given SteamID
-	// Accounts help manage currency; banks simply manage accounts
-	// TODO: Remember to set Account CurrentClass during class-related events
-	public void Enroll(int client, char steamID[MAX_AUTHID_LENGTH]) {
-		PrintToServer("[RTU][Bank] Enrolling new account for client %d SteamID %s", client, steamID);
-		// Build the account
-		Account account;
-		account.Init(client, steamID, this.StartingCurrency());
-
-		// Store the account
-		this.SetArray(steamID, account, sizeof(Account));
+	public bool NeedsRevert(int client) {
+		Account a;
+		this.Fetch(client, a);
+		return a.NeedsRevert();
 	}
 
 	// Centralizes logic which had been duplicated among transaction-related methods (Deposit, Withdrawal, etc)
-	// NOTE: I tried, but callbacks did not work as expected within methodmaps
-	public void Transaction(float amount, int client, TRANSACTION transaction) {
+	// NOTE: Attempted and failed to execute callback functions defined within this methodmap
+	public void Transaction(float amount, int client, BANK_TRANSACTION transaction) {
 		// Fetch account
 		Account a; this.Fetch(client, a);
 
@@ -146,18 +212,21 @@ methodmap Bank < StringMap  {
 		// Apply amount to the correct field
 		switch (transaction) {
 			// Currency gained from events or chat commands
-			case DEPOSIT:
+			case BANK_DEPOSIT:
 				a.earned += amount;
 			// Purchasing or refunding upgrades
-			case WITHDRAW:
+			case BANK_WITHDRAW:
 				a.classData[a.currentClass].spent += amount;
 			// Purchasing non-refundables
-			case BURN:
+			case BANK_BURN:
 				a.classData[a.currentClass].burnt += amount;
 		}
 
-		// Save changes
-		this.SetArray(a.steamID, a, sizeof(Account));
+		// enforce currency limit (disabled by default)
+		a.earned = this.LimitCurrency(a.earned);
+
+		// Save changes before syncing
+		this.SetArray(a.accountKey, a, sizeof(Account));
 
 		// Match the client's currency to account balance
 		this.Sync(client);
@@ -165,19 +234,17 @@ methodmap Bank < StringMap  {
 
 	// Helper method for readability
 	public void Deposit(float amount, int client) {
-		PrintToServer("[RTU][Bank] Depositing %.2f to client %d", amount, client);
-		this.Transaction(amount, client, DEPOSIT);
+		this.Transaction(amount, client, BANK_DEPOSIT);
 	}
 
 	// Helper method for readability
 	public void Withdraw(float amount, int client) {
-		// PrintToServer("[RTU][Bank] Withdrawing %.2f from client %d", amount, client);
-		this.Transaction(amount, client, WITHDRAW);
+		this.Transaction(amount, client, BANK_WITHDRAW);
 	}
 
 	// Helper method for readability
 	public void Burn(float amount, int client) {
-		this.Transaction(amount, client, BURN);
+		this.Transaction(amount, client, BANK_BURN);
 	}
 
 	// Call when refunding upgrades
@@ -189,25 +256,35 @@ methodmap Bank < StringMap  {
 	public void Forgive(float amount, int client) {
 		this.Burn(-amount, client);
 	}
-
-	// Deposit money to all connects whether connected or not. Optional team filter
+	public void Revert(int client) {
+		Account a;
+		this.Fetch(client, a);
+		a.Revert();
+		this.SetArray(a.accountKey, a, sizeof(Account));
+	}
+	// Deposit money to all accounts whether connected or not. Optional team filter
 	public void DepositAll(float amount, int team=-1) {
 		// Late joiners can benefit from these deposits
-		g_fCurrencyFromObjectives += amount;
+		BankConfig config;
+		this.GetArray("config", config, sizeof(config));
+		config.bonusStartingCurrency += amount;
+		this.SetArray("config", config, sizeof(config));
 
 		// Iteration vars (assumes keys are all the same size - should be)
 		Account a;
 		int clientID;
-		char steamID[MAX_AUTHID_LENGTH];
+		char accountKey[MAX_AUTHID_LENGTH];
 
 		// Iterate over all accounts
 		StringMapSnapshot keys = this.Snapshot();
 		for(int i = 0; i < keys.Length; i++) {
-			// Grab SteamID (key)
-			keys.GetKey(i, steamID, MAX_AUTHID_LENGTH);
+			// Grab Account Key (SteamID|Name)
+			keys.GetKey(i, accountKey, MAX_AUTHID_LENGTH);
+			if (strcmp(accountKey, "config") == 0) continue;
 
 			// Fetch account
-			this.GetArray(steamID, a, sizeof(Account));
+			this.GetArray(accountKey, a, sizeof(Account));
+
 			clientID = a.client;
 
 			// Optional team filter
@@ -218,7 +295,7 @@ methodmap Bank < StringMap  {
 		}
 	}
 
-	// Used by an admin command - converts it's argument to a group or an individual client
+	// Used by an admin command - supports "all", "red", "blu", or a specific player
 	public bool DepositTarget(char target[MAX_NAME_LENGTH], float amount, int replyTo=0) {
 		if (StrEqual(target, "all", false)) {
 			this.DepositAll(amount);
@@ -235,27 +312,38 @@ methodmap Bank < StringMap  {
 		return true;
 	}
 
-	// Get the balance for a client - may vary depending on client's TFClassType
+	// Limit maximum earnable currency (disabled by default)
+	public float LimitCurrency(float amount) {
+		float limit = g_Cvar_CurrencyLimit.FloatValue;
+
+		// if no limit or under limit, amount is valid
+		if (limit < 0 || amount < limit) return amount;
+
+		return limit;
+	}
+
+	// Get the balance for the client's current class
 	public float Balance(int client) {
 		Account a;
 		this.Fetch(client, a);
 		return a.Balance();
 	}
 
-	// Amount of starting currency (excluding mid-round gains)
+	// Starting currency before bonuses
 	public float BaseStartingCurrency() {
 		return  g_Cvar_CurrencyStarting.FloatValue
 			* g_Cvar_CurrencyMultiplier.FloatValue;
 	}
 
-	// Used to set account currency during enrollments and resets
-	// NOTE: g_fCurrencyFromObjectives increases within `DepositAll`
+	// Starting currency including bonuses
 	public float StartingCurrency() {
+		BankConfig config;
+		this.GetArray("config", config, sizeof(config));
 		return this.BaseStartingCurrency()
-			 + g_fCurrencyFromObjectives;
+			 + config.bonusStartingCurrency;
 	}
 
-	// Synchronize entity props with bank values
+	// Synchronize bank values with actual client currency
 	public bool Sync(int clientID = -1) {
 		// client validation has just happened upstream
 		if (clientID > 0) {
@@ -283,59 +371,53 @@ methodmap Bank < StringMap  {
 		int delta = RoundToCeil(balance - current);
 
 		return delta;
-		// return RoundToCeil(
-		// 		this.GetClientCurrency(client)
-		// 	  - this.Balance(client));
 	}
 
-	// Resolve currency deltas arising from purchases and refunds
-	// Triggers a bank transaction which also syncs currency with balance
-	// TODO: handle nonrefundable currency (burnt)
-	public void ResolveDelta(int client) {
-		// TODO: need to ensure Sync is called at least once prior to ResolveDelta
-		// this.Sync(client);
+	// Resolve account balance deltas arising from spent/refunded currency
+	public bool ResolveDelta(int client) {
 		int delta = this.Delta(client);
+		if (delta == 0) return false;
+
 		this.Withdraw(float(delta), client);
+		return true;
 	}
 
-	// Reset all accounts in the bank. Syncs connected clients
+	// Reset all accounts in the bank. Syncs connected clients only
 	public void ResetAccounts() {
-		// Revert starting currency bonuses from objectives
-		g_fCurrencyFromObjectives = 0.0;
+		// Revert starting currency bonuses earned from objectives
+		BankConfig config;
+		this.GetArray("config", config, sizeof(config));
+		config.bonusStartingCurrency = 0;
+		this.SetArray("config", config, sizeof(config));
 
-		// Iterate over all accounts
+		// Iteration vars
 		StringMapSnapshot keys = this.Snapshot();
+		char accountKey[MAX_AUTHID_LENGTH];
+		Account account;
 
+		// Iterate Accounts
 		for(int i = 0; i < keys.Length; i++) {
-			// Grab SteamID (key)
-			int size = keys.KeyBufferSize(i);
-			char[] steamID = new char[size];
-			keys.GetKey(i, steamID, size);
+			// Store Account Key (SteamID|Name)
+			keys.GetKey(i, accountKey, MAX_AUTHID_LENGTH);
 
-			// Write account to buffer
-			Account a;
-			this.GetArray(steamID, a, sizeof(Account));
+			// Skip config entry
+			if (strcmp(accountKey, "config") == 0) continue;
+
+			// Fetch account
+			this.GetArray(accountKey, account, sizeof(Account));
 
 			// Perform reset
-			a.Reset(this.StartingCurrency());
+			account.Reset(this.StartingCurrency());
 
 			// Save Changes
-			this.SetArray(steamID, a, sizeof(Account));
+			this.SetArray(accountKey, account, sizeof(Account));
 
 			// Sync connected clients
-			if (a.connected) this.Sync(a.client);
+			if (account.connected) this.Sync(account.client);
 		}
 	}
 
-	public void ResetAccount(int client) {
-		Account a;
-		this.Fetch(client, a);
-		a.Reset(this.StartingCurrency());
-		this.SetArray(a.steamID, a, sizeof(Account));
-		this.Sync(client);
-	}
-
-	// Get "the real" currency value for a client
+	// Get "the real" currency value for a client (not the bank balance)
 	public float GetClientCurrency(int client) {
 		return this.ValidClient(client) ?
 			float(GetEntProp(client, Prop_Send, "m_nCurrency")) :
@@ -359,7 +441,7 @@ methodmap Bank < StringMap  {
 		PrintToServer("=================================================================================");
 		PrintToServer("[RTU][Bank] Accounts");
 		PrintToServer("---------------------------------------------------------------------------------");
-		PrintToServer("SteamID           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
+		PrintToServer("Account Key           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
 		PrintToServer("---------------------------------------------------------------------------------");
 		this.PrintAccounts();
 		PrintToServer("=================================================================================");
@@ -369,20 +451,20 @@ methodmap Bank < StringMap  {
 	public void PrintAccounts() {
 		// Iteration vars
 		Account a;
-		char steamID[MAX_AUTHID_LENGTH];
+		char accountKey[MAX_AUTHID_LENGTH];
 		StringMapSnapshot keys = this.Snapshot();
 
 		// Iterate Accounts
 		for(int i = 0; i < keys.Length; i++) {
-			// Grab SteamID (key)
-			keys.GetKey(i, steamID, sizeof(steamID));
-
-			bool accountFound = this.GetArray(steamID, a, sizeof(Account));
+			// Grab Account Key (SteamID|Name)
+			keys.GetKey(i, accountKey, sizeof(accountKey));
+			if (strcmp(accountKey, "config") == 0) continue;
+			bool accountFound = this.GetArray(accountKey, a, sizeof(Account));
 
 			PrintToServer(
 				accountFound ?
 					a.ToRow() :
-					"[RTU][Bank] No account found for SteamID: %s", steamID);
+					"[RTU][Bank] No account found for Account Key: %s", accountKey);
 		}
 	}
 
@@ -392,23 +474,27 @@ methodmap Bank < StringMap  {
 
 		bool accountFound = this.Fetch(client, a);
 
-		PrintToServer(
+		ReplyToCommand(client,
 			accountFound ?
 				a.ToString() :
 		 		"[RTU][Bank] No account found for Client: %d", client);
+		// PrintToServer(
+		// 	accountFound ?
+		// 		a.ToString() :
+		//  		"[RTU][Bank] No account found for Client: %d", client);
 	}
 
 	// Debug
-	public void PrintSteamIDs() {
+	public void PrintAccountKeys() {
 		StringMapSnapshot keys = this.Snapshot();
 
 		for(int i = 0; i < keys.Length; i++) {
-			// Grab SteamID (key)
-
+			// Grab Account Key (SteamID|Name)
 			int size = keys.KeyBufferSize(i);
-			char[] steamID = new char[size];
-			keys.GetKey(i, steamID, size);
-			PrintToServer("[RTU][Bank] Index: %d, SteamID: %s", i, steamID);
+			char[] accountKey = new char[size];
+			keys.GetKey(i, accountKey, size);
+			if (strcmp(accountKey, "config") == 0) continue;
+			PrintToServer("[RTU][Bank] Index: %d, Account Key: %s", i, accountKey);
 		}
 	}
 
@@ -421,7 +507,7 @@ methodmap Bank < StringMap  {
 			&& !IsFakeClient(client);
 	}
 
-	// Optional team filter, default: pass
+	// Optional team filter
 	public bool ValidTeam(int client, int team) {
 		return team == -1 || GetClientTeam(client) == team;
 	}

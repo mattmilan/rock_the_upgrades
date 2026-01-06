@@ -1,25 +1,46 @@
+/**
+ * Rock The Upgrades: Account
+ * TODO: description
+ */
+
 #pragma newdecls required
 #pragma semicolon 1
-#include <tf2>
-#include <tf2_stocks>
 
 // A support for Account to track spending per class
 enum struct ClassData {
 	float spent;
 	float burnt;
 
-	// TODO: track weapons
+	// Indicate whether class was played and may need a reset
+	// bool played;
+
+	// whether or not we believe this class has any upgrades to refund
+	// bool upgraded;
+
+	// Revert upgrades for current class after next spawn. Set on every reset
+	bool markedForRevert;
+
+	// TODO: track weapons upgraded per class
+	// MAGIC NUMBER 16: max # of weapons a single class could juggle?
+	// int weaponsUpgraded[16];
+
 
 	void Reset() {
+		// Nothing to reset if nothing spent
+		if (this.spent < 0.001) return;
+
 		this.spent = 0.0;
 		this.burnt = 0.0;
+		// this.played = false;
+		// this.upgraded = false;
+		this.markedForRevert = true;
 	}
 }
 
 // A data structure used by bank to track player currency
 enum struct Account {
 	// Player-unique identifier, useful when reconnecting
-	char steamID[MAX_AUTHID_LENGTH + 1];
+	char accountKey[MAX_AUTHID_LENGTH + 1];
 
     // Client ID for reference
     int client;
@@ -30,12 +51,12 @@ enum struct Account {
 	// track earnings independent of class
 	float earned;
 
-	// track refundable and non-refundable spending per class
+	// track refundable and non-refundable spending per class. For interation:
 	TFClassType currentClass;
-	ClassData classData[10]; // starts at 1; remember to offset
+	ClassData classData[10];
 
-	void Init(int client, char steamID[MAX_AUTHID_LENGTH], float startingCurrency) {
-		strcopy(this.steamID, sizeof(this.steamID), steamID);
+	void Init(int client, char accountKey[MAX_AUTHID_LENGTH], float startingCurrency) {
+		strcopy(this.accountKey, sizeof(this.accountKey), accountKey);
 		this.client = client;
 		this.earned = startingCurrency;
 		this.connected = true;
@@ -55,31 +76,41 @@ enum struct Account {
 		return this.classData[classType].burnt;
 	}
 
+	bool NeedsRevert(TFClassType classType = view_as<TFClassType>(-1)) {
+		if (classType == view_as<TFClassType>(-1)) classType = this.currentClass;
+		return this.classData[classType].markedForRevert;
+	}
+
+	bool Revert() {
+		this.classData[this.currentClass].markedForRevert = false;
+		this.classData[this.currentClass].spent = 0.0;
+
+		return true;
+	}
+
 	void Reset(float startingCurrency) {
 		this.earned = startingCurrency;
 
 		for (TFClassType classType = TFClass_Scout; classType <= TFClass_Engineer; classType++) {
 			this.classData[classType].Reset();
+			if (classType == this.currentClass) {
+				this.classData[classType].markedForRevert = false;
+			}
 		}
 	}
 
 	void SetClass(TFClassType classType) {
-		if (classType == this.currentClass) return;
-
-		// char className[MAX_NAME_LENGTH];
-		// if (!TF2_ClassTypeToName(classType, this.currentClass, className)) {
-		// 	PrintToServer("[RTU][Bank] Warning: Attempted to set invalid class type %d for client %d", classType, this.client);
-		// 	return;
-		// }
-		// char currentClassName[MAX_NAME_LENGTH];
-		// TF2_ClassTypeToName(this.currentClass, this.currentClass, currentClassName);
-		// PrintToServer("[RTU][Bank] Changing class for client %d from %s to %s", this.client, currentClassName, className);
 		this.currentClass = classType;
+	}
+
+	void Refund() {
+		this.classData[this.currentClass].spent = 0.0;
 	}
 
 	// NOTE: I would use TFClass_Unknown but that might represent Spectators
 	// TODO: i bet that using -1 will break since the enum doesnt contain that value
 	float Balance(TFClassType classType = view_as<TFClassType>(-1)) {
+		// Default to current class
 		if (classType == view_as<TFClassType>(-1))
 			 classType = this.currentClass;
 
@@ -102,14 +133,14 @@ enum struct Account {
 			"[RTU][BANK] Account Info\nClient %3d - %s\nSteamID: %s\nEarned: %.2f\n",
 			this.client,
 			clientName,
-			this.steamID,
+			this.accountKey,
 			this.earned
 		);
 
 		// Sub Header
-		StrCat( buffer, sizeof(buffer), "----------------------------------------\n");
-		StrCat( buffer, sizeof(buffer), "Class    |  Spent  |  Burnt  | Balance  \n");
-		StrCat( buffer, sizeof(buffer), "----------------------------------------\n");
+		StrCat( buffer, sizeof(buffer), "---------------------------------------------------------\n");
+		StrCat( buffer, sizeof(buffer), "Class    | Revert? | Spent  |  Burnt  | Balance \n");
+		StrCat( buffer, sizeof(buffer), "---------------------------------------------------------\n");
 
 		// Rows
 		for (TFClassType classType = TFClass_Scout; classType <= TFClass_Engineer; classType++) {
@@ -117,13 +148,16 @@ enum struct Account {
 			Format(
 				row,
 				sizeof(row),
-				"%9s|%9.2f|%9.2f|%9.2f\n",
+				"%9s|%8s|%9.2f|%9.2f|%9.2f\n",
 				className,
+				// this.classData[classType].played ? "true" : "",
+				this.classData[classType].markedForRevert ? "true" : "",
 				this.classData[classType].spent,
 				this.classData[classType].burnt,
 				this.Balance(classType)
 			);
 
+			// Join
 			StrCat(buffer, sizeof(buffer), row);
 		}
 
@@ -134,12 +168,14 @@ enum struct Account {
 	char[] ToRow() {
 		char row[128];
 		char className[MAX_NAME_LENGTH];
+
 		TF2_ClassTypeToName(this.currentClass, className);
+
 		Format(
 			row,
 			sizeof(row),
-			"%18s|%9d|%12s|%9s|%9.2f|%9.2f|%9.2f|%9.2f\n",
-			this.steamID,
+			"%21s|%9d|%12s|%9s|%9.2f|%9.2f|%9.2f|%9.2f\n",
+			this.accountKey,
 			this.client,
 			this.connected ? "true" : "false",
 			className,
@@ -148,6 +184,7 @@ enum struct Account {
 			this.classData[this.currentClass].burnt,
 			this.Balance()
 		);
+
 		return row;
 	}
 }
@@ -155,7 +192,7 @@ enum struct Account {
 // Returns the class name string for a given TFClassType
 bool TF2_ClassTypeToName(TFClassType classType, char className[MAX_NAME_LENGTH], TFClassType current=view_as<TFClassType>(-1)) {
     if (classType < TFClass_Scout || classType > TFClass_Engineer) {
-		className =  "INVALID";
+		className = "INVALID";
 		return false;
 	}
 
@@ -172,7 +209,7 @@ bool TF2_ClassTypeToName(TFClassType classType, char className[MAX_NAME_LENGTH],
         default:                 return false; // TODO: handle spectator?
     }
 
-	// Decorate output to indicate 'current' during iterations
+	// Decorate output to indicate active class during iterations
 	if (current != view_as<TFClassType>(-1) && current == classType) StrCat(className, sizeof(className), "*");
 
 	return true;

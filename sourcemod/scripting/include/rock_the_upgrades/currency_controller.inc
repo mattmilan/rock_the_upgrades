@@ -1,3 +1,9 @@
+/**
+ * Rock The Upgrades: Currency Controller
+ * TODO: description
+ * TODO: methodmap
+ */
+
 #include "bank.inc"
 
 ConVar g_Cvar_CurrencyOnKillMin;
@@ -22,7 +28,6 @@ void InitCurrencyController() {
     InitCurrencyConVars();
     HookCurrencyEvents();
 
-	bank = new Bank();
 	RevengeTracker = new StringMap();
 }
 
@@ -39,9 +44,6 @@ void HookCurrencyEvents() {
 	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
 	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
 	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
-
-	// Currency sync
-	HookEvent("post_inventory_application", Event_PostInventoryApplication, EventHookMode_Post);
 }
 
 void InitCurrencyConVars() {
@@ -75,9 +77,9 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 
 	float reward = CurrencyOnKill(revenge);
 
-	if (killer)   bank.Deposit(reward, killer);
-	if (assister) bank.Deposit(reward, assister);
-	if (victim)   bank.Burn(DeathPenalty(victim), victim);
+	if (ValidClient(killer))   bank.Deposit(reward, killer);
+	if (ValidClient(assister)) bank.Deposit(reward, assister);
+	if (ValidClient(victim))   bank.Burn(DeathPenalty(victim), victim);
 
 	return Plugin_Continue;
 }
@@ -94,8 +96,8 @@ Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)
 	int assister = GetClientOfUserId(event.GetInt("assister"));
 	float reward = CurrencyForDestroyedObject(event);
 
-	if (attacker) bank.Deposit(reward, attacker);
-	if (assister) bank.Deposit(reward, assister);
+	if (ValidClient(attacker)) bank.Deposit(reward, attacker);
+	if (ValidClient(assister)) bank.Deposit(reward, assister);
 
 	return Plugin_Continue;
 }
@@ -141,19 +143,6 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	return Plugin_Continue;
 }
 
-// TODO: Guard against firing too often
-Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
-	if (!UpgradesEnabled()) return Plugin_Continue;
-
-	int client = GetClientOfUserId(event.GetInt("userid"));
-
-	if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
-		return Plugin_Continue;
-
-	bank.ResolveDelta(client);
-
-	return Plugin_Continue;
-}
 
 // Play SFX when buildings are destroyed while being built
 // TODO: Debug the heck out of this
