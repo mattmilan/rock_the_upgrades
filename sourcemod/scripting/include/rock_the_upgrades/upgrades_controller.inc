@@ -3,7 +3,7 @@
  * TODO: description
  */
 
-#include <tf2attributes>
+#include "../tf2attributes.inc"
 
 // Enum representing the various states the upgrades system can be in
 // Useful for gating initialization and functionality
@@ -18,6 +18,8 @@ enum UPGRADES_STATE {
 }
 
 const int MAX_UPGRADES_STATE_NAME = 32;
+
+ConVar g_Cvar_MultiStageReset;
 
 // A random sound to play when upgrades are enabled
 static ArrayList SFX_UPGRADES_ENABLE;
@@ -48,7 +50,7 @@ static char pathsForDisableSFX[][] = {
 methodmap UpgradesController < StringMap {
 
 	// Minimal constructor - yet another glorified StringMap
-	public UpgradesController(bool debug = false) {
+	public UpgradesController() {
 		StringMap upgradesController = new StringMap();
 
 		// TODO: convar?
@@ -60,6 +62,8 @@ methodmap UpgradesController < StringMap {
 	// Establish values which persist between maps
 	public bool OnPluginStarted() {
 		this.InitSFXArrays();
+
+		g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
 
 		return true;
 	}
@@ -205,9 +209,6 @@ methodmap UpgradesController < StringMap {
 
 		// Remove lingering effects of upgrades
 		TF2_RegeneratePlayer(client);
-
-		// Close the upgrades menu if open
-		// SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
 
 	// Approaching/leaving resupply lockers will show/hide the upgrades menu
@@ -278,8 +279,6 @@ methodmap UpgradesController < StringMap {
 		// private set during `OnMapStarted`
 	}
 
-	// When true, prints additional messages to server console
-
 	// Whether resupply lockers have been hooked to show the upgrades menu
 	property bool Hooked {
 		public get() {
@@ -290,6 +289,7 @@ methodmap UpgradesController < StringMap {
 		// private set during `HookUpgradesMenuToResupply`
 	}
 
+	// Whether a `func_upgradestation` has been added to the current map
 	property bool Built {
 		public get() {
 			int built;
@@ -297,6 +297,14 @@ methodmap UpgradesController < StringMap {
 			return built == 1;
 		}
 		// private set during `BuildUpgradeStation`
+	}
+
+	// whether or not to signal that upgrades (and probably currency) should be reset on
+	// round start. Think of maps like cp_dustbowl that are 3 rounds in one map cycle
+	property bool ResetOnRoundStart {
+		public get() {
+			return this.Enabled && g_Cvar_MultiStageReset.IntValue == 1;
+		}
 	}
 
 	// Current upgrades state. Assigns and returns UNSET by default
@@ -311,7 +319,6 @@ methodmap UpgradesController < StringMap {
 			}
 
 			this.GetValue("state", state)
-			char stateName[MAX_UPGRADES_STATE_NAME];
 			return state;
 		}
 

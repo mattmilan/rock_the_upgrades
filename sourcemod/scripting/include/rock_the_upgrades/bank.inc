@@ -4,8 +4,8 @@
  */
 
 #pragma newdecls required
-#include <rock_the_upgrades/account>
-#include <rock_the_upgrades/bank_config>
+#include "account.inc"
+#include "bank_config.inc"
 
 // TODO: isolate via longer name
 enum BANK_TRANSACTION {
@@ -328,7 +328,7 @@ methodmap Bank < StringMap  {
 	}
 
 	// Used by an admin command - supports "all", "red", "blu", or a specific player
-	public bool DepositTarget(char target[MAX_NAME_LENGTH], float amount, int replyTo=0) {
+	public void DepositTarget(char target[MAX_NAME_LENGTH], float amount, int replyTo=0) {
 		if (StrEqual(target, "all", false)) {
 			this.DepositAll(amount);
 		} else if (StrEqual(target, "red", false)) {
@@ -338,10 +338,8 @@ methodmap Bank < StringMap  {
 		} else {
 			int targetClientId = FindTarget(replyTo, target, true);
 			if (targetClientId > 0) this.Deposit(amount, targetClientId);
-			else return false;
+			else ReplyToCommand(replyTo, "[RTU] Could not find player %s", target);
 		}
-
-		return true;
 	}
 
 	// Limit maximum earnable currency (disabled by default)
