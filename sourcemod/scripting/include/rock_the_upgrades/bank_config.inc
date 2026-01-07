@@ -11,7 +11,8 @@ enum struct BankConfig {
 	bool steamAuthAvailable;
 
 	// Tracks currency gained from objectives this round which will be combined with starting currency for late joiners
-	int bonusStartingCurrency;
+	float bonusStartingCurrencyRed;
+	float bonusStartingCurrencyBlu;
 
 	// Maps currently connected clients to their Account Keys (fallback to client names during outages)
 	ArrayList clientAccountKeys;
@@ -20,8 +21,20 @@ enum struct BankConfig {
 		if (this.initialized) return;
 
 		this.steamAuthAvailable = true;
-		this.bonusStartingCurrency = 0;
+		this.bonusStartingCurrencyRed = 0.0;
+		this.bonusStartingCurrencyBlu = 0.0;
 		this.clientAccountKeys = new ArrayList(MAX_AUTHID_LENGTH, MaxClients + 1);
 		this.initialized = true;
+	}
+
+	void AddBonusStartingCurrency(float amount, TFTeam team) {
+		if (team == TFTeam_Red || team == TFTeam_Unassigned) this.bonusStartingCurrencyRed += amount;
+		if (team == TFTeam_Blue || team == TFTeam_Unassigned) this.bonusStartingCurrencyBlu += amount;
+	}
+
+	float Bonus(TFTeam team) {
+		return team == TFTeam_Red ?
+			this.bonusStartingCurrencyRed :
+			this.bonusStartingCurrencyBlu;
 	}
 }

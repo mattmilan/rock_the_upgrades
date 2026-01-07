@@ -207,21 +207,25 @@ methodmap UpgradesController < StringMap {
 		TF2_RegeneratePlayer(client);
 
 		// Close the upgrades menu if open
-		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
+		// SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
 
 	// Approaching/leaving resupply lockers will show/hide the upgrades menu
 	// TODO: Solve for maps that have no `func_regenerate` entities
 	public void HookUpgradesMenuToResupply() {
-		if (this.Hooked) return;
+		if (this.Hooked) {
+			PrintToServer("*****Lockers already hooked");
+			return;
+		}
+		PrintToServer("*****Hooking Lockers");
 
 		this.SetValue("hooked", 1);
 
 		int resupplyEntity = -1;
 
 		while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "func_regenerate")) != -1) {
-			SDKHook(resupplyEntity, SDKHook_StartTouchPost, OnRTUUpgradeTriggerStartTouchPost);
-			SDKHook(resupplyEntity, SDKHook_EndTouchPost, OnRTUUpgradeTriggerEndTouchPost);
+			SDKHook(resupplyEntity, SDKHook_StartTouch, OnRTUUpgradeTriggerStartTouchPost);
+			SDKHook(resupplyEntity, SDKHook_EndTouch, OnRTUUpgradeTriggerEndTouchPost);
 		}
 	}
 
@@ -360,22 +364,24 @@ methodmap UpgradesController < StringMap {
 // Without a timer, an internal variable can't observe the change
 // For more info search the TF2 source code for `m_bWasInZone`
 void OnRTUUpgradeTriggerStartTouchPost(int trigger, int client) {
-	// if (!client || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client)) { return; }
+
 	if (!ValidClient(client)) return;
+	PrintToServer("[RTU] StartTouch Close %d", client);
 
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	CreateTimer(0.1, Timer_ShowRTUUpgradesMenu, client);
 }
 
 void OnRTUUpgradeTriggerEndTouchPost(int trigger, int client) {
-	// PrintToServer("[RTU] OnRTUUpgradeTriggerEndTouchPost fired for client %d", client);
-	// if (!client || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client)) { return; }
+	PrintToServer("[RTU] EndTouch Close %d", client);
+
 	if (!ValidClient(client)) return;
 
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 }
 
 Action Timer_ShowRTUUpgradesMenu(Handle timer, int client) {
+	PrintToServer("[RTU] StartTouch Open %d", client);
 	// PrintToServer("[RTU] Timer_ShowRTUUpgradesMenu fired for client %d", client);
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 1);
 

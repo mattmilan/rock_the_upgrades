@@ -31,8 +31,6 @@ enum struct ClassData {
 
 		this.spent = 0.0;
 		this.burnt = 0.0;
-		// this.played = false;
-		// this.upgraded = false;
 		this.markedForRevert = true;
 	}
 }
@@ -55,10 +53,12 @@ enum struct Account {
 	TFClassType currentClass;
 	ClassData classData[10];
 
-	void Init(int client, char accountKey[MAX_AUTHID_LENGTH], float startingCurrency) {
+	// Track team to support team-based currency when clients are disconnected
+	TFTeam currentTeam;
+
+	void Init(int client, char accountKey[MAX_AUTHID_LENGTH]) {
 		strcopy(this.accountKey, sizeof(this.accountKey), accountKey);
 		this.client = client;
-		this.earned = startingCurrency;
 		this.connected = true;
 	}
 
@@ -97,10 +97,6 @@ enum struct Account {
 				this.classData[classType].markedForRevert = false;
 			}
 		}
-	}
-
-	void SetClass(TFClassType classType) {
-		this.currentClass = classType;
 	}
 
 	void Refund() {

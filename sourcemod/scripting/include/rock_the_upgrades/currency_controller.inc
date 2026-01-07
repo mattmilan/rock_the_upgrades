@@ -106,7 +106,7 @@ Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)
 Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
 	bank.DepositAll(
 		CurrencyFromPointCapture(),
-		.team=event.GetInt("team")
+		.team=view_as<TFTeam>(event.GetInt("team"))
 	);
 
 	return Plugin_Continue;
@@ -122,7 +122,7 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 
 	bank.DepositAll(
 		CurrencyFromFlagCapture(),
-		.team=GetClientTeam(player)
+		.team=view_as<TFTeam>(GetClientTeam(player))
 	);
 
 	return Plugin_Continue;

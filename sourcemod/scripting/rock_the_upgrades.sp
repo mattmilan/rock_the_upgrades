@@ -88,6 +88,7 @@
 #include <sdktools>
 #include <sdkhooks>
 #include <tf2>
+#include <tf2_stocks>
 
 // Facilitates the removal of upgrades during resets
 // #include <tf2attributes>
@@ -250,7 +251,6 @@ void InitConvars() {
 
 void HookEvents() {
 	HookEvent("teamplay_round_start", Event_TeamplayRoundStart, EventHookMode_Post);
-	HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
 	HookEvent("player_hurt", Event_PlayerHurt, EventHookMode_Post);
 	HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Post);
 	HookEvent("teamplay_win_panel", Event_TeamplayWinPanel, EventHookMode_Post);
@@ -293,31 +293,28 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 	return Plugin_Continue;
 }
 
-// Bank tracks currency per class - inform it of all class changes
-Action Event_PlayerChangeClass(Event event, const char[] name, bool dontBroadcast) {
-	PrintToServer("[RTU} <Player Change Class>");
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (IsFakeClient(client)) return Plugin_Continue;
-
-	TFClassType classType = view_as<TFClassType>(event.GetInt("class"));
-
-	bank.SetClass(client, classType);
-
-	return Plugin_Continue;
-}
-
 Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
-	PrintToServer("[RTU} <Player Spawn>");
+	// Extract event variables
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (IsFakeClient(client)) return Plugin_Continue;
+	TFClassType classType = view_as<TFClassType>(event.GetInt("class"));
+	TFTeam team = view_as<TFTeam>(event.GetInt("team"));
 
-    if (bank.NeedsRevert(client)) CreateTimer(0.1, Timer_RevertClient, client);//upgrades.ResetPlayer(client);
+	// Validate
+	if (!ValidPlayer(client, classType, team)) return Plugin_Continue;
+
+	PrintToServer("[RTU] <Player Spawn> [Valid Player!]");
+
+	// Update or create account and sync balance
+	bool revert = bank.OnPlayerSpawn(client, classType, team);
+
+	if (revert) CreateTimer(0.1, Timer_RevertClient, client);
+	else bank.Sync(client);
 
 	return Plugin_Continue;
 }
 
 Action Timer_RevertClient(Handle timer, any client) {
-	PrintToServer("[RTU} <Revert Client>");
+	PrintToServer("[RTU] <Revert Client>");
 
 	// Very important for these two events to happen together
 	upgrades.ResetPlayer(client);
@@ -345,14 +342,9 @@ Action Event_TeamplayWinPanel(Event event, const char[] name, bool dontBroadcast
 
 // TODO: Guard against firing too often
 Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
-	if (!upgrades.Enabled) return Plugin_Continue;
-
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	if (!ValidClient(client)) return Plugin_Continue;
-
-	// Try to resolve some PocketUpgrades command wierdness
-	if (!bank.ResolveDelta(client)) SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
+	if (upgrades.Enabled && ValidClient(client)) bank.ResolveDelta(client);
 
 	return Plugin_Continue;
 }
@@ -531,6 +523,18 @@ bool VotePossible(int client) {
 	return true;
 }
 
+/**
+ * t.8 Helpers
+ * =========================================================================
+ */
+
+
+bool ValidPlayer(int client, TFClassType classType, TFTeam team) {
+	return ValidClient(client) &&
+		ValidClass(classType) &&
+		ValidTeam(team);
+}
+
 // Duplicated in Bank module - consider centralizing
 bool ValidClient(int client, bool checkConnected=true, bool checkInGame=true, bool checkFake=true) {
 	// REQUIRED: within integer bounds
@@ -548,10 +552,15 @@ bool ValidClient(int client, bool checkConnected=true, bool checkInGame=true, bo
 	return true;
 }
 
-/**
- * t.8 Helpers
- * =========================================================================
- */
+// Not Unknown and within TF2 Class Range
+bool ValidClass(TFClassType classType) {
+	return classType > TFClass_Unknown && classType <= TFClass_Engineer;
+}
+
+// Not Unassigned or Spectator
+bool ValidTeam(TFTeam team) {
+	return team == TFTeam_Red || team == TFTeam_Blue;
+}
 
 // Automatically enable upgrades if enough players are present
 void AttemptAutoEnable(){

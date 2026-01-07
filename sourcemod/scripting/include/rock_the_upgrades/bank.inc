@@ -54,15 +54,63 @@ methodmap Bank < StringMap  {
 		return view_as<Bank>(accounts);
     }
 
-	public void Connect(int client) {
+	// Establish account key and track auth server status
+	// Account link/creation happens JIT during OnPlayerSpawn
+	public bool Connect(int client) {
 		// Maps client -> steamID (fallback: client name)
-		bool authorized = this.UpdateAccountKeys(client);
+		bool authorized = this.RegisterAccountKey(client);
 
 		// Track steam auth server outages and recoveries
 		this.SetAuthServersReachable(authorized);
 
 		// Create new accounts or reconnect existing ones
-		this.ConnectAccount(client);
+		// TODO: can't set starting currency for new accounts until first valid spawn when team is selected
+		this.FindOrCreateAccount(client);
+
+		return authorized;
+	}
+
+	// Creates new accounts or reconnects existing ones
+	public void FindOrCreateAccount(int client) {
+		char accountKey[MAX_AUTHID_LENGTH];
+		this.GetAccountKey(client, accountKey);
+
+		if (this.ContainsKey(accountKey)) this.SetConnection(client, true);
+		else this.CreateAccount(client, accountKey);
+	}
+
+	// Updates the underlying stringmap with a new account for the given Account Key
+	public void CreateAccount(int client, char accountKey[MAX_AUTHID_LENGTH]) {
+		// buffer
+		Account account;
+
+		// initialize ID information (starting currency set on activation)
+		account.Init(client, accountKey);
+
+		// save changes
+		this.SetArray(accountKey, account, sizeof(Account));
+	}
+
+	// Accounts track the identity, team, and class of the client
+	public bool UpdateAccount(int client, TFClassType classType, TFTeam team) {
+		// buffer
+		Account account;
+
+		// fetch existing account
+		this.Fetch(client, account);
+
+		// apply updates
+		account.currentClass = classType;
+		account.currentTeam = team;
+
+		// grant one-time starting currency
+		if (account.earned < 0.001) account.earned = this.StartingCurrency(account.currentTeam);
+
+		// save changes
+		this.SetArray(account.accountKey, account, sizeof(Account));
+
+		// inform caller if revert is needed
+		return account.NeedsRevert();
 	}
 
 	// Mark account as disconnected. Account persists for current map
@@ -95,10 +143,12 @@ methodmap Bank < StringMap  {
 		this.SetArray("config", config, sizeof(config));
 	}
 
-	// Maintain a map of client -> SteamID to reduce network traffic to external auth servers
+	// Maintain an ArrayList of client -> SteamID to limit external resource traffic
+	// Entries may be safely stomped while clients connect/reconnect
 	// While auth servers are down, Client Name is used instead (discouraged as spoofable)
-	// `SetAuthServersReachable` detects restoration and handles recovery
-	public bool UpdateAccountKeys(int client) {
+	// `SetAuthServersReachable` detects restoration and handles recovery of player name -> steamID
+	// Returns true if Steam Auth Servers were reachable
+	public bool RegisterAccountKey(int client) {
 		// Buffer
 		char accountKey[MAX_AUTHID_LENGTH];
 
@@ -141,25 +191,10 @@ methodmap Bank < StringMap  {
 	 	return config.clientAccountKeys.GetString(client, accountKey, MAX_AUTHID_LENGTH) > 0;
 	}
 
-	// Creates new accounts or reconnects existing ones
-	public void ConnectAccount(int client) {
-		// Buffer
+	public bool AccountExists(int client) {
 		char accountKey[MAX_AUTHID_LENGTH];
-
-		// Write to buffer
 		this.GetAccountKey(client, accountKey);
-
-		// Create | Reconnect
-		this.ContainsKey(accountKey) ?
-			this.SetConnection(client, true) :
-		    this.CreateAccount(client, accountKey);
-	}
-
-	// Updates the underlying stringmap with a new account for the given Account Key
-	public void CreateAccount(int client, char accountKey[MAX_AUTHID_LENGTH]) {
-		Account account;
-		account.Init(client, accountKey, this.StartingCurrency());
-		this.SetArray(accountKey, account, sizeof(Account));
+		return this.ContainsKey(accountKey);
 	}
 
 	// Marks an account as connected or disconnected (for visibility)
@@ -176,22 +211,15 @@ methodmap Bank < StringMap  {
 		this.SetArray(a.accountKey, a, sizeof(Account));
 	}
 
-	// Accounts need to know the current class to maintain accurate balances
-	public void SetClass(int client, TFClassType classType) {
-		// Buffer
-		Account a;
+	// Update or create account
+	public bool OnPlayerSpawn(int client, TFClassType classType, TFTeam team) {
+		// Apply changes. Returns true if revert is needed
+		bool revert = this.UpdateAccount(client, classType, team);
 
-		// Find and copy account values
-		this.Fetch(client, a);
-
-		// Update account
-		a.SetClass(classType);
-
-		// Save Changes
-		this.SetArray(a.accountKey, a, sizeof(Account));
-
-		// Sync client currency with balance of changed class
+		// Sync currency
 		this.Sync(client);
+
+		return revert;
 	}
 
 	public bool NeedsRevert(int client) {
@@ -256,18 +284,22 @@ methodmap Bank < StringMap  {
 	public void Forgive(float amount, int client) {
 		this.Burn(-amount, client);
 	}
+
 	public void Revert(int client) {
 		Account a;
 		this.Fetch(client, a);
 		a.Revert();
 		this.SetArray(a.accountKey, a, sizeof(Account));
+		this.Sync(client);
 	}
+
 	// Deposit money to all accounts whether connected or not. Optional team filter
-	public void DepositAll(float amount, int team=-1) {
+	public void DepositAll(float amount, TFTeam team=TFTeam_Unassigned) {
+		PrintToServer("[RTU][BANK] Depositing %.2f to all accounts", amount);
 		// Late joiners can benefit from these deposits
 		BankConfig config;
 		this.GetArray("config", config, sizeof(config));
-		config.bonusStartingCurrency += amount;
+		config.AddBonusStartingCurrency(amount, team);
 		this.SetArray("config", config, sizeof(config));
 
 		// Iteration vars (assumes keys are all the same size - should be)
@@ -336,11 +368,10 @@ methodmap Bank < StringMap  {
 	}
 
 	// Starting currency including bonuses
-	public float StartingCurrency() {
-		BankConfig config;
-		this.GetArray("config", config, sizeof(config));
+	public float StartingCurrency(TFTeam team) {
+		BankConfig config; this.GetArray("config", config, sizeof(config));
 		return this.BaseStartingCurrency()
-			 + config.bonusStartingCurrency;
+			 + config.Bonus(team);
 	}
 
 	// Synchronize bank values with actual client currency
@@ -387,9 +418,10 @@ methodmap Bank < StringMap  {
 		// Revert starting currency bonuses earned from objectives
 		BankConfig config;
 		this.GetArray("config", config, sizeof(config));
-		config.bonusStartingCurrency = 0;
+		config.bonusStartingCurrencyRed = 0.0;
+		config.bonusStartingCurrencyBlu = 0.0;
 		this.SetArray("config", config, sizeof(config));
-
+		// float startingCurrency = this.StartingCurrency();
 		// Iteration vars
 		StringMapSnapshot keys = this.Snapshot();
 		char accountKey[MAX_AUTHID_LENGTH];
@@ -407,7 +439,7 @@ methodmap Bank < StringMap  {
 			this.GetArray(accountKey, account, sizeof(Account));
 
 			// Perform reset
-			account.Reset(this.StartingCurrency());
+			account.Reset(this.StartingCurrency(account.currentTeam));
 
 			// Save Changes
 			this.SetArray(accountKey, account, sizeof(Account));
@@ -439,7 +471,7 @@ methodmap Bank < StringMap  {
 		}
 
 		PrintToServer("=================================================================================");
-		PrintToServer("[RTU][Bank] Accounts");
+		PrintToServer("[RTU][Bank] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.StartingCurrency(TFTeam_Red), this.StartingCurrency(TFTeam_Blue));
 		PrintToServer("---------------------------------------------------------------------------------");
 		PrintToServer("Account Key           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
 		PrintToServer("---------------------------------------------------------------------------------");
@@ -508,7 +540,13 @@ methodmap Bank < StringMap  {
 	}
 
 	// Optional team filter
-	public bool ValidTeam(int client, int team) {
-		return team == -1 || GetClientTeam(client) == team;
+	public bool ValidTeam(int client, TFTeam team) {
+		return team == TFTeam_Unassigned || this.ClientTeam(client) == team;
+	}
+
+	public TFTeam ClientTeam(int client) {
+		Account a;
+		this.Fetch(client, a);
+		return a.currentTeam;
 	}
 }
