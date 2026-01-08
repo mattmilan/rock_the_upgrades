@@ -100,11 +100,11 @@ public Plugin myinfo = {
 
 /*===( t.3 Variables )========================================================*/
 
+UpgradesController upgrades;    // Manages upgrades state, setup, and cleanup
+    PocketUpgrades pocketMenu;	// Allows chat command to open upgrades menu
+       CombatTimer combatTimer;	// A persistent timer to fade client combat status
+           VoteMap votes;		// Tracks votes and player counts. Can auto-pass
               bool RTULateLoad; // Might be needed to get SteamIDs in lateload
-           VoteMap votes;		// Manages votes
-UpgradesController upgrades;    // Manages enabling/disabling/resetting upgrades
-    PocketUpgrades pocketMenu;	// Access upgrades menu via chat command
-       CombatTimer combatTimer;	// Manages persistent combat timers for all human clients
 
  /*===( t.4 Forwards )========================================================*/
 
@@ -116,6 +116,19 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 native AccountController Bank();
 native PaymentController Payment();
+
+public void OnPluginStart() {
+	InitPlugin();
+	InitDependencies();
+	if (!RTULateLoad) return;
+
+	for (int i=1; i<=MaxClients; i++) {
+		if (!IsClientConnected(i)) continue;
+
+		OnClientConnected(i);
+		OnClientAuthorized(i);
+	}
+}
 
 void InitPlugin() {
 	HookEvents();
@@ -132,19 +145,6 @@ void InitDependencies() {
 	upgrades.OnPluginStarted();
 	combatTimer.Init();
 	pocketMenu.Init(combatTimer);
-}
-
-public void OnPluginStart() {
-	InitPlugin();
-	InitDependencies();
-	if (!RTULateLoad) return;
-
-	for (int i=1; i<=MaxClients; i++) {
-		if (!IsClientConnected(i)) continue;
-
-		OnClientConnected(i);
-		OnClientAuthorized(i);
-	}
 }
 
 public void OnPluginEnd() {

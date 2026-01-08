@@ -88,10 +88,13 @@ enum struct Account {
 		return true;
 	}
 
+	// Called by `ResetAccounts` during `teamplay_round_start`, `rtu_reset` and `rtu_disable`
 	void Reset(float startingCurrency) {
 		this.earned = startingCurrency;
 
+		// for all classes
 		for (TFClassType classType = TFClass_Scout; classType <= TFClass_Engineer; classType++) {
+			// clear spending and mark for revert
 			this.classData[classType].Reset();
 			if (classType == this.currentClass) {
 				this.classData[classType].markedForRevert = false;
