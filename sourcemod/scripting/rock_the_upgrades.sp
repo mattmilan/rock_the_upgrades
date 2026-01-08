@@ -83,7 +83,7 @@
 #include <sdkhooks>
 #include <tf2>
 
-#include <rock_the_upgrades/account_controller>
+#include <rock_the_upgrades/rock_the_includes>
 
 #pragma semicolon 1
 #pragma newdecls required
