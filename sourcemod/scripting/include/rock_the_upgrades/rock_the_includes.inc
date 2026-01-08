@@ -5,7 +5,7 @@
 #include "upgrades_controller"
 
 // Manages configurable currency gains and losses across various events
-#include "currency_controller"
+#include "payment_controller"
 
 // Manages player accounts, currency balances, and spending
 #include "account_controller"
