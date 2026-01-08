@@ -133,7 +133,7 @@ public Plugin myinfo = {
 bool RTULateLoad;			 // Might be needed to get SteamIDs in lateload
 VoteMap votes;			 	 // Manages votes
 UpgradesController upgrades; // Manages enabling/disabling/resetting upgrades
-PocketUpgrades pocketMenu;	 	 // Access upgrades menu via chat command
+PocketUpgrades pocketMenu;	 // Access upgrades menu via chat command
 CombatTimer combatTimer;	 // Manages persistent combat timers for all human clients
 
 /**
@@ -147,6 +147,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     return APLRes_Success;
 }
 
+native Bank GetBank();
 public void OnPluginStart() {
 	// plugin setup
 	HookEvents();
@@ -180,6 +181,7 @@ public void OnPluginEnd() {
 	votes.Close();
 	upgrades.OnPluginEnded();
 	combatTimer.Stop();
+	// TODO: GetBank().Close();
 }
 
 public void OnMapStart() {
@@ -187,9 +189,7 @@ public void OnMapStart() {
 	votes.Reset();
 	upgrades.OnMapStarted();
 	combatTimer.Start();
-
-	if (bank != INVALID_HANDLE) bank.Close();
-	bank = new Bank();
+	// TODO: GetBank().WipeAccounts();
 }
 
 public void OnMapEnd() {
@@ -208,18 +208,18 @@ public void OnClientConnected(int client) {
 public void OnClientAuthorized(int client) {
 	if (IsFakeClient(client)) return;
 
-	bank.Connect(client);
+	GetBank().Connect(client);
 }
 
 // NOTE: We count votes because the vote might pass if a player disconnects without voting
 public void OnClientDisconnect(int client) {
 	if (IsFakeClient(client)) return;
 
-	bank.Disconnect(client);
+	GetBank().Disconnect(client);
 	votes.Drop(client);
 	if (!votes.Count()) return;
 
-	bank.Sync();
+	GetBank().Sync();
 	upgrades.Enable(.silent=true);
 }
 
@@ -235,7 +235,7 @@ public void TF2_OnWaitingForPlayersEnd() {
 	if (!votes.Count()) return;
 
 	PrintToChatAll("[RTU] %t", "RTU AutoEnable");
-	bank.Sync();
+	GetBank().Sync();
 	upgrades.Enable(.silent=true);
 }
 
@@ -281,7 +281,7 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 		int client = clients[i];
 		if (!ValidClient(client)) continue;
 
-		bank.GetAccountKey(client, accountKey);
+		GetBank().GetAccountKey(client, accountKey);
 		combatTimer.Set(accountKey);
 		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
@@ -300,10 +300,10 @@ Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
 	if (!ValidPlayer(client, classType, team)) return Plugin_Continue;
 
 	// Update or create account and sync balance
-	bool revert = bank.OnPlayerSpawn(client, classType, team);
+	bool revert = GetBank().OnPlayerSpawn(client, classType, team);
 
 	if (revert) CreateTimer(0.1, Timer_RevertClient, client);
-	else bank.Sync(client);
+	else GetBank().Sync(client);
 
 	return Plugin_Continue;
 }
@@ -311,7 +311,7 @@ Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
 // Must be called after a 100ms delay to give game state time to settle
 Action Timer_RevertClient(Handle timer, any client) {
 	upgrades.ResetPlayer(client);
-	bank.Revert(client);
+	GetBank().Revert(client);
 
 	return Plugin_Stop;
 }
@@ -319,7 +319,7 @@ Action Timer_RevertClient(Handle timer, any client) {
 // Reset on round start unless configured otherwise. This may be firing too often.
 Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
 	if (upgrades.ResetOnRoundStart) {
-		bank.ResetAccounts();
+		GetBank().ResetAccounts();
 		upgrades.Reset();
 	}
 
@@ -338,7 +338,7 @@ Action Event_TeamplayWinPanel(Event event, const char[] name, bool dontBroadcast
 Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	if (upgrades.Enabled && ValidClient(client)) bank.ResolveDelta(client);
+	if (upgrades.Enabled && ValidClient(client)) GetBank().ResolveDelta(client);
 
 	return Plugin_Continue;
 }
@@ -355,12 +355,12 @@ Action Command_RTU(int client, int args) {
 		votes.Add(client);
 		if (votes.Count()) {
 			upgrades.Enable();
-        	bank.Sync();
+        	GetBank().Sync();
 		}
 	}
 	else {
 		char accountKey[MAX_AUTHID_LENGTH];
-		bank.GetAccountKey(client, accountKey);
+		GetBank().GetAccountKey(client, accountKey);
 		pocketMenu.Show(client, accountKey);
 	}
 
@@ -369,7 +369,7 @@ Action Command_RTU(int client, int args) {
 
 // Player Command - show account data for all of client's classes
 Action Command_RTUAccount(int client, int args) {
-	if (client > 0) bank.PrintAccount(client);
+	if (client > 0) GetBank().PrintAccount(client);
 	else PrintToServer("[RTU] %t", "Command `rtu_account` can only be used by clients.");
 
 	return Plugin_Handled;
@@ -377,7 +377,7 @@ Action Command_RTUAccount(int client, int args) {
 
 // Admin Command - show account data for all clients' current class
 Action Command_RTUBanks(int client, int args) {
-	bank.PrintToServer();
+	GetBank().PrintToServer();
 	return Plugin_Handled;
 }
 
@@ -387,7 +387,7 @@ Action Command_RTUEnable(int client, int args) {
 		ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled");
 	} else {
 		votes.Passed = true; // prevent votes from re-triggering an enable event
-		bank.Sync();
+		GetBank().Sync();
 		upgrades.Enable(); // reports enable to chat
 	}
 
@@ -400,7 +400,7 @@ Action Command_RTUDisable(int client, int args) {
 	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
 	else {
 		votes.Revert();
-		bank.ResetAccounts();
+		GetBank().ResetAccounts();
 		upgrades.Reset(.silent = true);
 		upgrades.Disable(); // reports disable to chat
 	}
@@ -412,7 +412,7 @@ Action Command_RTUDisable(int client, int args) {
 Action Command_RTUReset(int client, int args) {
 	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
 	else {
-		bank.ResetAccounts();
+		GetBank().ResetAccounts();
 		upgrades.Reset(); // reports reset to chat
 	}
 
@@ -439,9 +439,9 @@ Action Command_RTUPay(int client, int args) {
 	char target[MAX_NAME_LENGTH]; GetCmdArg(2, target, MAX_NAME_LENGTH);
 
 	// Resolve to target
-	if (target[0]) bank.DepositTarget(target, amount, .replyTo=client);
+	if (target[0]) GetBank().DepositTarget(target, amount, .replyTo=client);
 	// Resolve to client
-	else if (client > 0) bank.Deposit(amount, client);
+	else if (client > 0) GetBank().Deposit(amount, client);
 	// Tell server that a target is required
 	else ReplyToCommand(client, "[RTU] Command `rtu_pay` cannot be called from server without specifying a target");
 

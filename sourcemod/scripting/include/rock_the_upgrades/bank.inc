@@ -16,22 +16,6 @@ enum BANK_TRANSACTION {
 	BANK_TRANSACTION_COUNT
 }
 
-ConVar g_Cvar_CurrencyStarting;
-ConVar g_Cvar_CurrencyMultiplier;
-ConVar g_Cvar_CurrencyLimit;
-
-// Invoke during `OnMapStart`
-void InitBankConvars() {
-	// Starting currency
-	g_Cvar_CurrencyStarting = CreateConVar("rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
-
-	// Global multiplier for all currency events
-	g_Cvar_CurrencyMultiplier = CreateConVar("rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
-
-	// Limit max currency gain to encourage strategic spending
-	g_Cvar_CurrencyLimit = CreateConVar("rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
-}
-
 /*
 	A bank is a glorified StringMap that maps SteamIDs (as accountKey) to Accounts
 	Account Keys fall back to client names if Steam Auth Servers are unreachable
@@ -43,10 +27,7 @@ void InitBankConvars() {
 methodmap Bank < StringMap  {
 	// Unassuming constructor
     public Bank() {
-		// TODO: call if uncalled (requires guard)
-		InitBankConvars();
 		StringMap accounts = new StringMap();
-
 		BankConfig config;
 		config.Init();
 		accounts.SetArray("config", config, sizeof(config));
@@ -235,7 +216,7 @@ methodmap Bank < StringMap  {
 		Account a; this.Fetch(client, a);
 
 		// Adjust all gains by global multiplier
-		amount *= g_Cvar_CurrencyMultiplier.FloatValue;
+		amount *= this.CurrencyMultiplier();
 
 		// Apply amount to the correct field
 		switch (transaction) {
@@ -344,12 +325,10 @@ methodmap Bank < StringMap  {
 
 	// Limit maximum earnable currency (disabled by default)
 	public float LimitCurrency(float amount) {
-		float limit = g_Cvar_CurrencyLimit.FloatValue;
-
 		// if no limit or under limit, amount is valid
-		if (limit < 0 || amount < limit) return amount;
+		if (this.CurrencyLimit() < 0 || amount < this.CurrencyLimit()) return amount;
 
-		return limit;
+		return this.CurrencyLimit();
 	}
 
 	// Get the balance for the client's current class
@@ -358,12 +337,15 @@ methodmap Bank < StringMap  {
 		this.Fetch(client, a);
 		return a.Balance();
 	}
-
+	// public native float Balance(int client);
 	// Starting currency before bonuses
-	public float BaseStartingCurrency() {
-		return  g_Cvar_CurrencyStarting.FloatValue
-			* g_Cvar_CurrencyMultiplier.FloatValue;
-	}
+	public native float BaseStartingCurrency();
+	public native float CurrencyMultiplier();
+	public native float CurrencyLimit();
+	// public float BaseStartingCurrency() {
+	// 	return g_Cvar_CurrencyStarting.FloatValue
+	// 		* g_Cvar_CurrencyMultiplier.FloatValue;
+	// }
 
 	// Starting currency including bonuses
 	public float StartingCurrency(TFTeam team) {

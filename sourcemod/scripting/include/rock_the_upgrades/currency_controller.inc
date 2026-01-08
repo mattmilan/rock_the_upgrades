@@ -21,7 +21,6 @@ ConVar g_Cvar_CurrencyOnDomination;
 // ConVar g_Cvar_CurrencyOverTimeFrequency;
 
 StringMap RevengeTracker; // Bonus currency for revenge kills
-Bank bank;				  // Manager for player currency
 
 // Invoke during `OnPluginStart()`
 void InitCurrencyController() {
@@ -34,7 +33,6 @@ void InitCurrencyController() {
 // Invoke during `OnPluginEnd()`
 void CloseCurrencyController() {
 	RevengeTracker.Close();
-	bank.Close();
 }
 
 void HookCurrencyEvents() {
@@ -230,18 +228,19 @@ float CurrencyFromPointCapture() {
 	return g_Cvar_CurrencyOnCapturePoint.FloatValue;
 }
 
+// TODO: Bank plugin detection, and fallback in it's absence
 void Deposit(float amount, int client) {
-	bank.Deposit(amount, client);
+	GetBank().Deposit(amount, client);
 }
 
 void Burn(float amount, int client) {
-	bank.Burn(amount, client);
+	GetBank().Burn(amount, client);
 }
 
 void DepositAll(float amount, TFTeam team = TFTeam_Unassigned) {
-	bank.DepositAll(amount, team);
+	GetBank().DepositAll(amount, team);
 }
 
 float Balance(int client) {
-	return bank.Balance(client);
+	return GetBank().Balance(client);
 }
