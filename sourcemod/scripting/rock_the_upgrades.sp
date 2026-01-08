@@ -132,7 +132,6 @@ void InitPlugin() {
 
 void InitDependencies() {
 	SendUpgradesFileToClients();
-	InitCurrencyController();
 	votes = new VoteMap();
 	upgrades = new UpgradesController();
 	upgrades.OnPluginStarted();
@@ -156,7 +155,7 @@ public void OnPluginStart() {
 }
 
 public void OnPluginEnd() {
-	CloseCurrencyController();
+	Payment().Close();
 	votes.Close();
 	upgrades.OnPluginEnded();
 	combatTimer.Stop();
@@ -166,7 +165,7 @@ public void OnPluginEnd() {
 public void OnMapStart() {
 	ApplyCustomUpgradesFile();
 
-	RevengeTracker.Clear();
+	Payment().Reset();
 	votes.Reset();
 	upgrades.OnMapStarted();
 	combatTimer.Start();

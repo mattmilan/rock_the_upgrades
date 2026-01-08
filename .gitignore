@@ -2,6 +2,12 @@
 !*/
 !**/sourcemod/scripting/include/rock_the_upgrades/*
 !rock_the_upgrades.*
+!account_controller.sp
+!payment_controller.sp
+!combat_timer.sp
+!pocket_upgrades.sp
+!custom_upgrades.sp
+!rock_the_includes.inc
 !LICENSE
 !README.md
 

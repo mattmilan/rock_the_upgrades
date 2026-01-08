@@ -1,8 +1,10 @@
-/**
- * Rock The Upgrades: Currency Controller
- * TODO: description
- * TODO: methodmap
- */
+// Looks like ordering might be important
+#include <sourcemod>
+#include <tf2>
+#include <tf2_stocks>
+#include <rock_the_upgrades/shared>
+#include <rock_the_upgrades/payment_controller>
+#include <rock_the_upgrades/account_controller>
 
 ConVar g_Cvar_CurrencyOnKillMin;
 ConVar g_Cvar_CurrencyOnKillMax;
@@ -18,23 +20,43 @@ ConVar g_Cvar_CurrencyOnDomination;
 // ConVar g_Cvar_CurrencyOverTimeRate;
 // ConVar g_Cvar_CurrencyOverTimeFrequency;
 
-StringMap RevengeTracker; // Bonus currency for revenge kills
+PaymentController Payment;
 
-// Invoke during `OnPluginStart()`
-void InitCurrencyController() {
-    InitCurrencyConVars();
-    HookCurrencyEvents();
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
+	// RegPluginLibrary("Payment");
+    CreateNative("Payment", Native_Payment);
+	CreateNative("PaymentController.KillMin", Native_KillMin);
+	CreateNative("PaymentController.KillMax", Native_KillMax);
+	CreateNative("PaymentController.RevengeMultiplier", Native_RevengeMultiplier);
+	CreateNative("PaymentController.Destruction", Native_Destruction);
+	CreateNative("PaymentController.Domination", Native_Domination);
+	CreateNative("PaymentController.CapturePoint", Native_CapturePoint);
+	CreateNative("PaymentController.CaptureFlag", Native_CaptureFlag);
+	CreateNative("PaymentController.DeathTax", Native_DeathTax);
 
-	RevengeTracker = new StringMap();
+	return APLRes_Success;
+}
+
+public any Native_Payment(Handle plugin, int numParams) {
+    return Payment;
+}
+
+native AccountController Bank();
+
+public void OnPluginStart() {
+	Payment = new PaymentController();
+    InitConVars();
+    HookEvents();
+
+	// RevengeTracker = new StringMap();
 }
 
 // Invoke during `OnPluginEnd()`
-void CloseCurrencyController() {
-	RevengeTracker.Close();
+public void OnPluginEnd() {
+	Payment.Close();
 }
 
-void HookCurrencyEvents() {
-	// Currency gain
+void HookEvents() {
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
 	HookEvent("object_destroyed", Event_ObjectDestroyed, EventHookMode_Post);
 	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
@@ -42,7 +64,7 @@ void HookCurrencyEvents() {
 	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
 }
 
-void InitCurrencyConVars() {
+void InitConVars() {
 	// Currency gain
 	g_Cvar_CurrencyOnKillMin = CreateConVar("rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
 	g_Cvar_CurrencyOnKillMax = CreateConVar("rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
@@ -56,6 +78,31 @@ void InitCurrencyConVars() {
     g_Cvar_CurrencyDeathTax = CreateConVar("rtu_currency_death_tax", "0.0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
 }
 
+public any Native_KillMin(Handle plugin, int numParams) {
+    return g_Cvar_CurrencyOnKillMin.FloatValue;
+}
+public any Native_KillMax(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnKillMax.FloatValue;
+}
+public any Native_RevengeMultiplier(Handle plugin, int numParams) {
+	return g_Cvar_RevengeMultiplier.FloatValue;
+}
+public any Native_Destruction(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnObjectDestroyed.FloatValue;
+}
+public any Native_Domination(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnDomination.FloatValue;
+}
+public any Native_CapturePoint(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnCapturePoint.FloatValue;
+}
+public any Native_CaptureFlag(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnCaptureFlag.FloatValue;
+}
+public any Native_DeathTax(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyDeathTax.FloatValue;
+}
+
 // Kills earn currency
 Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int killer = GetClientOfUserId(event.GetInt("attacker"));
@@ -66,16 +113,16 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	// We need to reset it or the menu will immediately open on player spawn
 	SetEntProp(victim, Prop_Send, "m_bInUpgradeZone", 0);
 
-	if (Suicide(killer, victim)) { return Plugin_Continue; }
+	if (Payment.Suicide(killer, victim)) { return Plugin_Continue; }
 
-	bool revenge = RevengeKill(killer, victim)
-				|| RevengeKill(assister, victim);
+	bool revenge = Payment.RevengeKill(killer, victim)
+				|| Payment.RevengeKill(assister, victim);
 
-	float reward = CurrencyOnKill(revenge);
+	float reward = Payment.ForKill(revenge);
 
-	if (ValidClient(killer))   Deposit(reward, killer);
-	if (ValidClient(assister)) Deposit(reward, assister);
-	if (ValidClient(victim))   Burn(DeathPenalty(victim), victim);
+	if (ValidClient(killer))   Bank().Deposit(reward, killer);
+	if (ValidClient(assister)) Bank().Deposit(reward, assister);
+	if (ValidClient(victim))   Bank().Burn(Payment.DeathPenalty(victim), victim);
 
 	return Plugin_Continue;
 }
@@ -90,18 +137,18 @@ Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)
 
 	int attacker = GetClientOfUserId(event.GetInt("attacker"));
 	int assister = GetClientOfUserId(event.GetInt("assister"));
-	float reward = CurrencyForDestroyedObject(event);
+	float reward = Payment.ForDestruction(event);
 
-	if (ValidClient(attacker)) Deposit(reward, attacker);
-	if (ValidClient(assister)) Deposit(reward, assister);
+	if (ValidClient(attacker)) Bank().Deposit(reward, attacker);
+	if (ValidClient(assister)) Bank().Deposit(reward, assister);
 
 	return Plugin_Continue;
 }
 
 // Capturing a point earns team currency
 Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
-	DepositAll(
-		CurrencyFromPointCapture(),
+	Bank().DepositAll(
+		Payment.ForPointCapture(),
 		.team=view_as<TFTeam>(event.GetInt("team"))
 	);
 
@@ -116,8 +163,8 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 	// event.GetInt("team") won't work as some maps have inverted flag logic
 	int player = event.GetInt("player");
 
-	DepositAll(
-		CurrencyFromFlagCapture(),
+	Bank().DepositAll(
+		Payment.ForFlagCapture(),
 		.team=view_as<TFTeam>(GetClientTeam(player))
 	);
 
@@ -129,116 +176,12 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	// Handle domination
     int dominator = GetClientOfUserId(event.GetInt("dominator"));
 	int dominated = GetClientOfUserId(event.GetInt("dominated"));
-	Deposit(CurrencyOnDomination(), dominator);
+	Bank().Deposit(Payment.ForDomination(), dominator);
 
 	// Track revenge
 	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
 	char dominatedName[MAX_NAME_LENGTH]; GetClientName(dominated, dominatedName, sizeof(dominatedName));
-	RevengeTracker.SetString(dominatedName, dominatorName);
+	Payment.SetString(dominatedName, dominatorName);
 
 	return Plugin_Continue;
-}
-
-
-// Play SFX when buildings are destroyed while being built
-// TODO: Debug the heck out of this
-// void ObjectDenied(Event event) {
-// 	PrintToServer("[RTU] ObjectDenied event triggered");
-// 	int builder = GetClientOfUserId(event.GetInt("userid"));
-// 	int attacker = GetClientOfUserId(event.GetInt("attacker"));
-// 	int assister = GetClientOfUserId(event.GetInt("assister"));
-
-// 	if (ValidClient(builder))  EmitGameSoundToClient(builder,  "vo/engineer_no01.wav");
-// 	if (ValidClient(attacker)) EmitGameSoundToClient(attacker, "vo/engineer_gunslingerpunch02.wav");
-// 	if (ValidClient(assister)) EmitGameSoundToClient(assister, "vo/engineer_gunslingerpunch02.wav");
-// }
-
-// higher level buildings yield more currency
-float CurrencyForDestroyedObject(Event event) {
-	int objectIndex = event.GetInt("index");
-	int upgradeLevel = GetEntProp(objectIndex, Prop_Send, "m_iUpgradeLevel");
-
-	return upgradeLevel
-		 * g_Cvar_CurrencyOnObjectDestroyed.FloatValue;
-}
-
-
-// Payment denied on suicide and other nonsense
-bool Suicide(int killer, int victim) {
-    return killer < 1 || killer == victim;
-}
-
-// Revenge kills trigger a bonus multiplier
-// TODO: optimize by avoiding conversion from id to name, if possible
-bool RevengeKill(int killer, int victim) {
-	// get killer name
-	char dominatedName[MAX_NAME_LENGTH];
-	GetClientName(killer, dominatedName, sizeof(dominatedName));
-
-	// check if killer has been dominated, and if so, who the dominator was
-	char storedDominator[MAX_NAME_LENGTH];
-	bool revenge = RevengeTracker.GetString(dominatedName, storedDominator, sizeof(storedDominator));
-
-	// bail early if killer hasn't actually been dominated
-	if (!revenge) { return false; }
-
-	// get victim name
-	char dominatorName[MAX_NAME_LENGTH];
-	GetClientName(victim, dominatorName, sizeof(dominatorName));
-
-	// if the victim never dominated the player, this is not a revenge kill
-	if (!StrEqual(dominatorName, storedDominator)) { return false; }
-
-	// confirmed as a revenge kill - removing the record also returns true
-    return RevengeTracker.Remove(dominatedName);
-}
-
-// Returns a ConVar-defined float on revenge, or 1 (which will have no effect)
-float RevengeMultiplier(bool revenge=false) {
-	return revenge ? g_Cvar_RevengeMultiplier.FloatValue : 1.0;
-}
-
-// Returns a random float clamped to a convar-defined range, then apply multipliers
-float CurrencyOnKill(bool revenge=false) {
-    return GetRandomFloat(
-        g_Cvar_CurrencyOnKillMin.FloatValue,
-        g_Cvar_CurrencyOnKillMax.FloatValue
-    ) * RevengeMultiplier(revenge);
-}
-
-// Dominations earn a bonus (disabled by default)
-float CurrencyOnDomination() {
-    return g_Cvar_CurrencyOnDomination.FloatValue;
-}
-
-// Dying may incur a penalty (disabled by default)
-// Returns a positive value, should be inverted when called
-float DeathPenalty(int victim) {
-    return Balance(victim)
-         * g_Cvar_CurrencyDeathTax.FloatValue;
-}
-
-float CurrencyFromFlagCapture() {
-	return g_Cvar_CurrencyOnCaptureFlag.FloatValue;
-}
-
-float CurrencyFromPointCapture() {
-	return g_Cvar_CurrencyOnCapturePoint.FloatValue;
-}
-
-// TODO: Bank plugin detection, and fallback in it's absence
-void Deposit(float amount, int client) {
-	Bank().Deposit(amount, client);
-}
-
-void Burn(float amount, int client) {
-	Bank().Burn(amount, client);
-}
-
-void DepositAll(float amount, TFTeam team = TFTeam_Unassigned) {
-	Bank().DepositAll(amount, team);
-}
-
-float Balance(int client) {
-	return Bank().Balance(client);
 }
