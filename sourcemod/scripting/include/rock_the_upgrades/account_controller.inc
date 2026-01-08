@@ -276,35 +276,35 @@ methodmap AccountController < StringMap  {
 
 	// Deposit money to all accounts whether connected or not. Optional team filter
 	public void DepositAll(float amount, TFTeam team=TFTeam_Unassigned) {
-		PrintToServer("[RTU][BANK] Depositing %.2f to all accounts", amount);
-		// Late joiners can benefit from these deposits
+		// Increase bonus starting currency for late joiners
 		BankConfig config;
 		this.GetArray("config", config, sizeof(config));
 		config.AddBonusStartingCurrency(amount, team);
 		this.SetArray("config", config, sizeof(config));
 
-		// Iteration vars (assumes keys are all the same size - should be)
+		// Iteration vars
 		Account a;
-		int clientID;
 		char accountKey[MAX_AUTHID_LENGTH];
 
-		// Iterate over all accounts
+		// Iterate by key
 		StringMapSnapshot keys = this.Snapshot();
+
+		// for all accounts
 		for(int i = 0; i < keys.Length; i++) {
 			// Grab Account Key (SteamID|Name)
 			keys.GetKey(i, accountKey, MAX_AUTHID_LENGTH);
+
+			// Skip config entry
 			if (strcmp(accountKey, "config") == 0) continue;
 
 			// Fetch account
 			this.GetArray(accountKey, a, sizeof(Account));
 
-			clientID = a.client;
-
 			// Optional team filter
-			if (!this.ValidTeam(clientID, team)) continue;
+			if (!this.ValidTeam(a.client, team)) continue;
 
 			// Get paid
-			this.Deposit(amount, clientID);
+			this.Deposit(amount, a.client);
 		}
 	}
 
@@ -318,7 +318,8 @@ methodmap AccountController < StringMap  {
 			this.DepositAll(amount, .team=TFTeam_Blue);
 		} else {
 			int targetClientId = FindTarget(replyTo, target, true);
-			if (targetClientId > 0) this.Deposit(amount, targetClientId);
+
+			if (ValidClient(targetClientId)) this.Deposit(amount, targetClientId); // if (targetClientId > 0) this.Deposit(amount, targetClientId);
 			else ReplyToCommand(replyTo, "[RTU] Could not find player %s", target);
 		}
 	}

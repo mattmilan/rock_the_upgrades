@@ -22,33 +22,17 @@ ConVar g_Cvar_CurrencyOnDomination;
 
 PaymentController Payment;
 
-public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
-	// RegPluginLibrary("Payment");
-    CreateNative("Payment", Native_Payment);
-	CreateNative("PaymentController.KillMin", Native_KillMin);
-	CreateNative("PaymentController.KillMax", Native_KillMax);
-	CreateNative("PaymentController.RevengeMultiplier", Native_RevengeMultiplier);
-	CreateNative("PaymentController.Destruction", Native_Destruction);
-	CreateNative("PaymentController.Domination", Native_Domination);
-	CreateNative("PaymentController.CapturePoint", Native_CapturePoint);
-	CreateNative("PaymentController.CaptureFlag", Native_CaptureFlag);
-	CreateNative("PaymentController.DeathTax", Native_DeathTax);
+native AccountController Bank();
 
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
+	PrepareLibrary();
 	return APLRes_Success;
 }
-
-public any Native_Payment(Handle plugin, int numParams) {
-    return Payment;
-}
-
-native AccountController Bank();
 
 public void OnPluginStart() {
 	Payment = new PaymentController();
     InitConVars();
     HookEvents();
-
-	// RevengeTracker = new StringMap();
 }
 
 // Invoke during `OnPluginEnd()`
@@ -56,52 +40,6 @@ public void OnPluginEnd() {
 	Payment.Close();
 }
 
-void HookEvents() {
-	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
-	HookEvent("object_destroyed", Event_ObjectDestroyed, EventHookMode_Post);
-	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
-	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
-	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
-}
-
-void InitConVars() {
-	// Currency gain
-	g_Cvar_CurrencyOnKillMin = CreateConVar("rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnKillMax = CreateConVar("rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
-	g_Cvar_RevengeMultiplier = CreateConVar("rtu_currency_on_revenge", "4.0", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
-	g_Cvar_CurrencyOnDomination = CreateConVar("rtu_currency_on_domination", "0.0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnObjectDestroyed = CreateConVar("rtu_currency_on_object_destroyed", "5.0", "Base amount of currency to give to players on building destruction, multiplied by building level [5, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnCapturePoint = CreateConVar("rtu_currency_on_capture_point", "150.0", "Amount of currency to give to team on point capture in addition to the built-in default 100 currency [150, 0..]", 0, true, 0.0, false);
-	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("rtu_currency_on_capture_flag", "250.0", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
-
-    // Currency loss
-    g_Cvar_CurrencyDeathTax = CreateConVar("rtu_currency_death_tax", "0.0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
-}
-
-public any Native_KillMin(Handle plugin, int numParams) {
-    return g_Cvar_CurrencyOnKillMin.FloatValue;
-}
-public any Native_KillMax(Handle plugin, int numParams) {
-	return g_Cvar_CurrencyOnKillMax.FloatValue;
-}
-public any Native_RevengeMultiplier(Handle plugin, int numParams) {
-	return g_Cvar_RevengeMultiplier.FloatValue;
-}
-public any Native_Destruction(Handle plugin, int numParams) {
-	return g_Cvar_CurrencyOnObjectDestroyed.FloatValue;
-}
-public any Native_Domination(Handle plugin, int numParams) {
-	return g_Cvar_CurrencyOnDomination.FloatValue;
-}
-public any Native_CapturePoint(Handle plugin, int numParams) {
-	return g_Cvar_CurrencyOnCapturePoint.FloatValue;
-}
-public any Native_CaptureFlag(Handle plugin, int numParams) {
-	return g_Cvar_CurrencyOnCaptureFlag.FloatValue;
-}
-public any Native_DeathTax(Handle plugin, int numParams) {
-	return g_Cvar_CurrencyDeathTax.FloatValue;
-}
 
 // Kills earn currency
 Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
@@ -176,7 +114,7 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	// Handle domination
     int dominator = GetClientOfUserId(event.GetInt("dominator"));
 	int dominated = GetClientOfUserId(event.GetInt("dominated"));
-	Bank().Deposit(Payment.ForDomination(), dominator);
+	if (ValidClient(dominator)) Bank().Deposit(Payment.ForDomination(), dominator);
 
 	// Track revenge
 	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
@@ -184,4 +122,69 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	Payment.SetString(dominatedName, dominatorName);
 
 	return Plugin_Continue;
+}
+
+public any Native_Payment(Handle plugin, int numParams) {
+    return Payment;
+}
+
+public any Native_KillMin(Handle plugin, int numParams) {
+    return g_Cvar_CurrencyOnKillMin.FloatValue;
+}
+public any Native_KillMax(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnKillMax.FloatValue;
+}
+public any Native_RevengeMultiplier(Handle plugin, int numParams) {
+	return g_Cvar_RevengeMultiplier.FloatValue;
+}
+public any Native_Destruction(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnObjectDestroyed.FloatValue;
+}
+public any Native_Domination(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnDomination.FloatValue;
+}
+public any Native_CapturePoint(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnCapturePoint.FloatValue;
+}
+public any Native_CaptureFlag(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyOnCaptureFlag.FloatValue;
+}
+public any Native_DeathTax(Handle plugin, int numParams) {
+	return g_Cvar_CurrencyDeathTax.FloatValue;
+}
+
+
+void PrepareLibrary() {
+	RegPluginLibrary("payment");
+    CreateNative("Payment", Native_Payment);
+	CreateNative("PaymentController.KillMin", Native_KillMin);
+	CreateNative("PaymentController.KillMax", Native_KillMax);
+	CreateNative("PaymentController.RevengeMultiplier", Native_RevengeMultiplier);
+	CreateNative("PaymentController.Destruction", Native_Destruction);
+	CreateNative("PaymentController.Domination", Native_Domination);
+	CreateNative("PaymentController.CapturePoint", Native_CapturePoint);
+	CreateNative("PaymentController.CaptureFlag", Native_CaptureFlag);
+	CreateNative("PaymentController.DeathTax", Native_DeathTax);
+}
+
+void HookEvents() {
+	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
+	HookEvent("object_destroyed", Event_ObjectDestroyed, EventHookMode_Post);
+	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
+	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
+	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
+}
+
+void InitConVars() {
+	// Currency gain
+	g_Cvar_CurrencyOnKillMin = CreateConVar("rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnKillMax = CreateConVar("rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
+	g_Cvar_RevengeMultiplier = CreateConVar("rtu_currency_on_revenge", "4.0", "Multiplier for revenge kills [4, 1..]", 0, true, 1.0, false);
+	g_Cvar_CurrencyOnDomination = CreateConVar("rtu_currency_on_domination", "0.0", "Amount of currency to give a player on domination [0, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnObjectDestroyed = CreateConVar("rtu_currency_on_object_destroyed", "5.0", "Base amount of currency to give to players on building destruction, multiplied by building level [5, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnCapturePoint = CreateConVar("rtu_currency_on_capture_point", "150.0", "Amount of currency to give to team on point capture in addition to the built-in default 100 currency [150, 0..]", 0, true, 0.0, false);
+	g_Cvar_CurrencyOnCaptureFlag = CreateConVar("rtu_currency_on_capture_flag", "250.0", "Amount of currency to give to team on flag capture [250, 0..]", 0, true, 0.0, false);
+
+    // Currency loss
+    g_Cvar_CurrencyDeathTax = CreateConVar("rtu_currency_death_tax", "0.0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
 }
