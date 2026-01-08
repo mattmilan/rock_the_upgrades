@@ -1,5 +1,5 @@
 /**
- * Rock The Upgrades: Bank (Aka Accounts Controller)
+ * Rock The Upgrades: Accounts Controller (aka Bank)
  * TODO: description
  */
 
@@ -17,22 +17,22 @@ enum BANK_TRANSACTION {
 }
 
 /*
-	A bank is a glorified StringMap that maps SteamIDs (as accountKey) to Accounts
-	Account Keys fall back to client names if Steam Auth Servers are unreachable
- 	The bank handles client connection and account management
- 	The bank resets between maps, and supports reconnecting players
- 	For performance, the bank caches SteamID lookups
+	An AccountController is a glorified StringMap that maps SteamIDs (as
+	accountKey) to Accounts. These keys fall back to client names if Steam Auth
+	Servers are unreachable.
+	It handles client connection, account management, map resets, and supports
+ 	reconnecting clients. For performance, it caches SteamID lookups
 	TODO: DRY the skipping of the 'config' key
 */
-methodmap Bank < StringMap  {
+methodmap AccountController < StringMap  {
 	// Unassuming constructor
-    public Bank() {
+    public AccountController() {
 		StringMap accounts = new StringMap();
 		BankConfig config;
 		config.Init();
 		accounts.SetArray("config", config, sizeof(config));
 
-		return view_as<Bank>(accounts);
+		return view_as<AccountController>(accounts);
     }
 
 	// Establish account key and track auth server status
@@ -446,12 +446,12 @@ methodmap Bank < StringMap  {
 	// Debug. Print all accounts in a table. Optional client filter
 	public void PrintToServer() {
 		if (this.Size == 0) {
-			PrintToServer("[RTU][Bank] No accounts to display.");
+			PrintToServer("[RTU][Accounts] No data");
 			return;
 		}
 
 		PrintToServer("=================================================================================");
-		PrintToServer("[RTU][Bank] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.StartingCurrency(TFTeam_Red), this.StartingCurrency(TFTeam_Blue));
+		PrintToServer("[RTU] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.StartingCurrency(TFTeam_Red), this.StartingCurrency(TFTeam_Blue));
 		PrintToServer("---------------------------------------------------------------------------------");
 		PrintToServer("Account Key           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
 		PrintToServer("---------------------------------------------------------------------------------");
@@ -476,7 +476,7 @@ methodmap Bank < StringMap  {
 			PrintToServer(
 				accountFound ?
 					a.ToRow() :
-					"[RTU][Bank] No account found for Account Key: %s", accountKey);
+					"[RTU][Accounts] No account found for Account Key: %s", accountKey);
 		}
 	}
 
@@ -489,11 +489,11 @@ methodmap Bank < StringMap  {
 		ReplyToCommand(client,
 			accountFound ?
 				a.ToString() :
-		 		"[RTU][Bank] No account found for Client: %d", client);
+		 		"[RTU][Accounts] No account found for Client: %d", client);
 		// PrintToServer(
 		// 	accountFound ?
 		// 		a.ToString() :
-		//  		"[RTU][Bank] No account found for Client: %d", client);
+		//  		"[RTU][Accounts] No account found for Client: %d", client);
 	}
 
 	// Debug
@@ -506,7 +506,7 @@ methodmap Bank < StringMap  {
 			char[] accountKey = new char[size];
 			keys.GetKey(i, accountKey, size);
 			if (strcmp(accountKey, "config") == 0) continue;
-			PrintToServer("[RTU][Bank] Index: %d, Account Key: %s", i, accountKey);
+			PrintToServer("[RTU][Accounts] Index: %d, Account Key: %s", i, accountKey);
 		}
 	}
 

@@ -4,8 +4,6 @@
  * TODO: methodmap
  */
 
-#include "bank.inc"
-
 ConVar g_Cvar_CurrencyOnKillMin;
 ConVar g_Cvar_CurrencyOnKillMax;
 ConVar g_Cvar_CurrencyOnObjectDestroyed;
@@ -230,17 +228,17 @@ float CurrencyFromPointCapture() {
 
 // TODO: Bank plugin detection, and fallback in it's absence
 void Deposit(float amount, int client) {
-	GetBank().Deposit(amount, client);
+	Bank().Deposit(amount, client);
 }
 
 void Burn(float amount, int client) {
-	GetBank().Burn(amount, client);
+	Bank().Burn(amount, client);
 }
 
 void DepositAll(float amount, TFTeam team = TFTeam_Unassigned) {
-	GetBank().DepositAll(amount, team);
+	Bank().DepositAll(amount, team);
 }
 
 float Balance(int client) {
-	return GetBank().Balance(client);
+	return Bank().Balance(client);
 }
