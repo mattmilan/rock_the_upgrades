@@ -13,7 +13,7 @@ ConVar g_Cvar_CurrencyMultiplier;
 ConVar g_Cvar_CurrencyLimit;
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
-	// RegPluginLibrary("mapchooser");
+	RegPluginLibrary("account_controller");
     CreateNative("Bank", Native_Bank);
     CreateNative("AccountController.BaseStartingCurrency", Native_BaseStartingCurrency);
     CreateNative("AccountController.CurrencyMultiplier", Native_CurrencyMultiplier);
