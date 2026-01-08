@@ -393,6 +393,15 @@ methodmap AccountController < StringMap  {
 		return true;
 	}
 
+	// Call from `OnMapEnd`
+	public void Wipe() {
+		this.Clear();
+		// Re-add config entry
+		BankConfig config;
+		config.Init();
+		this.SetArray("config", config, sizeof(config));
+	}
+
 	// Reset all accounts in the bank. Syncs connected clients only
 	public void ResetAccounts() {
 		// Revert starting currency bonuses earned from objectives
@@ -401,7 +410,7 @@ methodmap AccountController < StringMap  {
 		config.bonusStartingCurrencyRed = 0.0;
 		config.bonusStartingCurrencyBlu = 0.0;
 		this.SetArray("config", config, sizeof(config));
-		// float startingCurrency = this.StartingCurrency();
+
 		// Iteration vars
 		StringMapSnapshot keys = this.Snapshot();
 		char accountKey[MAX_AUTHID_LENGTH];
@@ -490,10 +499,6 @@ methodmap AccountController < StringMap  {
 			accountFound ?
 				a.ToString() :
 		 		"[RTU][Accounts] No account found for Client: %d", client);
-		// PrintToServer(
-		// 	accountFound ?
-		// 		a.ToString() :
-		//  		"[RTU][Accounts] No account found for Client: %d", client);
 	}
 
 	// Debug

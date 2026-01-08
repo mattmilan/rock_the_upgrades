@@ -152,7 +152,7 @@ public void OnPluginEnd() {
 	votes.Close();
 	upgrades.OnPluginEnded();
 	combatTimer.Stop();
-	// TODO: Bank().Close();
+	Bank().Close();
 }
 
 public void OnMapStart() {
@@ -162,12 +162,12 @@ public void OnMapStart() {
 	votes.Reset();
 	upgrades.OnMapStarted();
 	combatTimer.Start();
-	// TODO: Bank().WipeAccounts();
 }
 
 public void OnMapEnd() {
 	pocketMenu.Reset();
 	combatTimer.Stop();
+	Bank().Wipe();
 }
 
 // Simply increment voting threshold. Continued in `OnClientAuthorized`
