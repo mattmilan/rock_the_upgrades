@@ -210,7 +210,7 @@ methodmap UpgradesController < StringMap {
 		// SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
 
-	// Approaching/leaving resupply lockers will show/hide the upgrades menu
+		// Approaching/leaving resupply lockers will show/hide the upgrades menu
 	// TODO: Solve for maps that have no `func_regenerate` entities
 	public void HookUpgradesMenuToResupply() {
 		if (this.Hooked) {
@@ -221,11 +221,27 @@ methodmap UpgradesController < StringMap {
 
 		this.SetValue("hooked", 1);
 
-		int resupplyEntity = -1;
+		char mapName[MAX_NAME_LENGTH];
+		GetCurrentMap(mapName, sizeof(mapName));
+		if (StrContains(mapName, "vip", false) != -1) {
+			PrintToServer("[RTU][UpgradesController] VIP map detected, activating strategy V.");
+			char propName[MAX_NAME_LENGTH];
+			int resupplyEntity = -1;
+			while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "prop_dynamic")) != -1) {
+				GetEntPropString(resupplyEntity, Prop_Data, "m_iName", propName, sizeof(propName));
+				if (StrContains(propName, "prop_locker_") == -1) continue;
+				PrintToServer("[RTU][UpgradesController] Hooking %s.", propName);
+				SDKHook(resupplyEntity, SDKHook_StartTouch, OnRTUUpgradeTriggerStartTouchPost);
+				SDKHook(resupplyEntity, SDKHook_EndTouch, OnRTUUpgradeTriggerEndTouchPost);
+			}
+		} else {
+			PrintToServer("[RTU][UpgradesController] NON-VIP map detected, resuming normal operations.");
+			int resupplyEntity = -1;
 
-		while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "func_regenerate")) != -1) {
-			SDKHook(resupplyEntity, SDKHook_StartTouch, OnRTUUpgradeTriggerStartTouchPost);
-			SDKHook(resupplyEntity, SDKHook_EndTouch, OnRTUUpgradeTriggerEndTouchPost);
+			while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "func_regenerate")) != -1) {
+				SDKHook(resupplyEntity, SDKHook_StartTouch, OnRTUUpgradeTriggerStartTouchPost);
+				SDKHook(resupplyEntity, SDKHook_EndTouch, OnRTUUpgradeTriggerEndTouchPost);
+			}
 		}
 	}
 
