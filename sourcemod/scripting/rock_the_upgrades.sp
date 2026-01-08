@@ -66,24 +66,16 @@
 
 
 
-/**
- * TOC
- * ============================================================================
- * t.1 Includes
- * t.2 Plugin Info
- * t.3 Global Variables
- * t.4 Forwards
- * t.5 Initializers
- * t.6 Events
- * t.7 Commands
- */
+/*=== TOC ====================================================================*/
+/* t.1 Includes     */
+/* t.2 Plugin Info  */
+/* t.3 Variables    */
+/* t.4 Forwards     */
+/* t.5 Initializers */
+/* t.6 Events       */
+/* t.7 Commands     */
 
-
-
-/**
- * t.1 Includes
- * ============================================================================
- */
+/*===( t.1 Includes )=========================================================*/
 
 // SM/TF2 Boilerplate
 #include <sourcemod>
@@ -91,62 +83,35 @@
 #include <sdkhooks>
 #include <tf2>
 
-// Shared functions
-#include <rock_the_upgrades/shared>
-
-// Enable/Disable upgrade system, and easily reset entity upgrades
-#include <rock_the_upgrades/upgrades_controller>
-
-// Manages configurable currency gains and losses across various events
-#include <rock_the_upgrades/currency_controller>
-
-// Persistent, multi-target timer
-#include <rock_the_upgrades/combat_timer>
-
-// Allows upgrade menu access via bindable chat command
-#include <rock_the_upgrades/pocket_upgrades>
-
-// Enables voting and auto-enable of upgrade system
-#include <rock_the_upgrades/voting>
+#include <rock_the_upgrades/rock_the_includes>
 
 #pragma semicolon 1
 #pragma newdecls required
 
-/**
- * t.2 Plugin Info
- * ===========================================================================
- */
+/*===( t.2 Plugin Info )======================================================*/
 
 public Plugin myinfo = {
-	name = "Rock The Upgrades (aka Freaky Fair Anywhere)",
-	author = "MurderousIntent",
+	       name = "Rock The Upgrades (aka Freaky Fair Anywhere)",
+	     author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
-	version = SOURCEMOD_VERSION,
-	url = "https://github.com/mattmilan/rock_the_upgrades"
+	    version = SOURCEMOD_VERSION,
+	        url = "https://github.com/mattmilan/rock_the_upgrades"
 };
 
-/**
- * t.3 Global Variables
- * ==========================================================================
- */
+/*===( t.3 Variables )========================================================*/
 
 ConVar g_Cvar_VoteThreshold;
 ConVar g_Cvar_MultiStageReset;
 ConVar g_Cvar_AutoEnableThreshold;
 ConVar g_Cvar_CombatTimeout; // TODO: move to combat_timer.inc?
 
-bool WaitingForPlayers; 	 // Disallows voting while "Waiting for Players"
-int PlayerCount;			 // Number of connected clients (excluding bots)
-bool RTULateLoad;			 // Might be needed to get SteamIDs in lateload
-VoteMap votes;			 	 // Manages votes
-UpgradesController upgrades; // Manages enabling/disabling/resetting upgrades
-PocketUpgrades pocketMenu;	 // Access upgrades menu via chat command
-CombatTimer combatTimer;	 // Manages persistent combat timers for all human clients
+              bool RTULateLoad; // Might be needed to get SteamIDs in lateload
+           VoteMap votes;		// Manages votes
+UpgradesController upgrades;    // Manages enabling/disabling/resetting upgrades
+    PocketUpgrades pocketMenu;	// Access upgrades menu via chat command
+       CombatTimer combatTimer;	// Manages persistent combat timers for all human clients
 
-/**
- * t.4 Forwards
- * =========================================================================
- */
+ /*===( t.4 Forwards )========================================================*/
 
 // TODO: might not be needed, requires exploration
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
@@ -155,12 +120,17 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 }
 
 native Bank GetBank();
-public void OnPluginStart() {
-	// plugin setup
+
+void InitPlugin() {
 	HookEvents();
 	RegisterCommands();
+	LoadTranslations("common.phrases");
+	LoadTranslations("rock_the_upgrades.phrases");
+	AutoExecConfig(true, "rtu");
+}
 
-	// included setup
+void InitDependencies() {
+	SendUpgradesFileToClients();
 	InitCurrencyController();
 	votes = new VoteMap();
 	upgrades = new UpgradesController();
@@ -170,18 +140,16 @@ public void OnPluginStart() {
 	// pocket will set locks according to the values in combatTimer
 	pocket.Init(combatTimer);
 
-	// boilerplate configs
-	LoadTranslations("common.phrases");
-	LoadTranslations("rock_the_upgrades.phrases");
-	AutoExecConfig(true, "rtu");
+public void OnPluginStart() {
+	InitPlugin();
+	InitDependencies();
+	if (!RTULateLoad) return;
 
-	if (RTULateLoad) {
-		// Ensures the voting threshold is reasonable
-		for (int i=1; i<=MaxClients; i++) {
-			if (IsClientConnected(i)) {
-				OnClientConnected(i);
-			}
-		}
+	for (int i=1; i<=MaxClients; i++) {
+		if (!IsClientConnected(i)) continue;
+
+		OnClientConnected(i);
+		OnClientAuthorized(i);
 	}
 }
 
@@ -194,6 +162,8 @@ public void OnPluginEnd() {
 }
 
 public void OnMapStart() {
+	ApplyCustomUpgradesFile();
+
 	RevengeTracker.Clear();
 	votes.Reset();
 	upgrades.OnMapStarted();
@@ -266,6 +236,7 @@ void HookEvents() {
 	HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Post);
 	HookEvent("teamplay_win_panel", Event_TeamplayWinPanel, EventHookMode_Post);
 	HookEvent("post_inventory_application", Event_PostInventoryApplication, EventHookMode_Post);
+	HookEvent("upgrades_file_changed", Event_UpgradesFileChanged, EventHookMode_Post);
 }
 
 void RegisterCommands() {
@@ -358,6 +329,15 @@ Action Event_PostInventoryApplication(Event event, const char[] name, bool dontB
 
 	return Plugin_Continue;
 }
+
+// Debug
+Action Event_UpgradesFileChanged(Event event, const char[] name, bool dontBroadcast) {
+	char path[PLATFORM_MAX_PATH]; event.GetString("path", path, sizeof(path));
+	PrintToServer("[RTU] Upgrades file changed, reapplying custom upgrades file: %s.", path);
+
+	return Plugin_Continue;
+}
+
 
 /**
  * t.7 Commands
