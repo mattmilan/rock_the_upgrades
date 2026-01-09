@@ -162,9 +162,6 @@ public void OnMapStart() {
 	votes.Reset();
 	upgrades.OnMapStarted();
 	combatTimer.Start();
-	int v; Bank().GetValue("test", v);
-	PrintToServer("[Bank] Test: %d", v);
-	Bank().config.Print();
 }
 
 public void OnMapEnd() {
