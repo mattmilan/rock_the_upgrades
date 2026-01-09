@@ -368,19 +368,14 @@ Action Command_RTU(int client, int args) {
 // Player Command - show account data for all of client's classes
 Action Command_RTUAccount(int client, int args) {
 	if (client == 0) PrintToServer("[RTU] %t", "Command `rtu_account` can only be used by clients.");
-	else {
-		BankPrinter bankPrinter = new BankPrinter(bank);
-		bankPrinter.PrintAccount(client);
-	}
-
+	else BankPrinter.PrintAccount(bank, client);
 
 	return Plugin_Handled;
 }
 
 // Admin Command - show account data for all clients' current class
 Action Command_RTUBanks(int client, int args) {
-	BankPrinter bankPrinter = new BankPrinter(bank);
-	bankPrinter.PrintToServer();
+	BankPrinter.PrintToServer(bank);
 
 	return Plugin_Handled;
 }

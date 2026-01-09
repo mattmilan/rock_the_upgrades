@@ -3,34 +3,28 @@
 #endif
 #define _bank_printer_included
 
-#include "../bank"
-
-methodmap BankPrinter < Bank {
-    public BankPrinter(Bank b) {
-        return view_as<BankPrinter>(b);
-    }
-
+methodmap BankPrinter < Handle {
     // Debug. Print all accounts in a table. Optional client filter
-    public void PrintToServer() {
-        if (this.Size == 0) {
+    public static void PrintToServer(Bank b) {
+        if (b.Size == 0) {
             PrintToServer("[RTU][Accounts] No data");
             return;
         }
 
         PrintToServer("=================================================================================");
-        PrintToServer("[RTU] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.StartingCurrency(TFTeam_Red), this.StartingCurrency(TFTeam_Blue));
+        PrintToServer("[RTU] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", b.StartingCurrency(TFTeam_Red), b.StartingCurrency(TFTeam_Blue));
         PrintToServer("---------------------------------------------------------------------------------");
         PrintToServer("Account Key           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
         PrintToServer("---------------------------------------------------------------------------------");
-        this.PrintAccounts();
+        BankPrinter.PrintAccounts(b);
         PrintToServer("=================================================================================");
     }
 
-    public void PrintAccounts() {
+    public static void PrintAccounts(Bank b) {
         // Iteration vars
         Account a;
         char accountKey[MAX_AUTHID_LENGTH];
-        StringMapSnapshot keys = this.Snapshot();
+        StringMapSnapshot keys = b.Snapshot();
         if (keys.Length == 0) {
             PrintToServer("%20s", "No Data");
             return;
@@ -40,7 +34,7 @@ methodmap BankPrinter < Bank {
             // Grab Account Key (SteamID|Name)
             keys.GetKey(i, accountKey, sizeof(accountKey));
 
-            bool accountFound = this.Data.GetArray(accountKey, a, sizeof(Account));
+            bool accountFound = b.Data.GetArray(accountKey, a, sizeof(Account));
 
             PrintToServer(
                 accountFound ?
@@ -49,10 +43,10 @@ methodmap BankPrinter < Bank {
         }
     }
 
-    public void PrintAccount(int client) {
+    public static void PrintAccount(Bank b, int client) {
         Account a;
 
-        bool accountFound = this.Fetch(client, a);
+        bool accountFound = b.Fetch(client, a);
 
         ReplyToCommand(client,
             accountFound ?
@@ -60,8 +54,8 @@ methodmap BankPrinter < Bank {
                 "[RTU][Accounts] No account found for Client: %d", client);
     }
 
-    public void PrintAccountKeys() {
-        StringMapSnapshot keys = this.Snapshot();
+    public static void PrintAccountKeys(Bank b) {
+        StringMapSnapshot keys = b.Snapshot();
 
         for(int i = 0; i < keys.Length; i++) {
             // Grab Account Key (SteamID|Name)

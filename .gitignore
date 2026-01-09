@@ -1,7 +1,7 @@
 *
 !*/
 !**/sourcemod/scripting/include/rock_the_upgrades/*
-!**/sourcemod/scripting/include/bank/*
+!**/sourcemod/scripting/include/bank/**
 !bank.*
 !rock_the_upgrades.*
 !account_controller.sp
