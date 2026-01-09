@@ -18,7 +18,7 @@
 #include "payment_controller"
 
 // Manages player accounts, currency balances, and spending
-#include "account_controller"
+#include "bank"
 
 // Persistent, multi-target timer
 #include "combat_timer"

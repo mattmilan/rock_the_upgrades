@@ -1,10 +1,16 @@
-// Looks like ordering might be important
+/**
+ *  Rock the Upgrades: Payment Controller
+ *  Handles earning and losing currency from in-game actions
+ *  TODO: details
+ */
+
+
 #include <sourcemod>
 #include <tf2>
 #include <tf2_stocks>
 #include <rock_the_upgrades/shared>
 #include <rock_the_upgrades/payment_controller>
-#include <rock_the_upgrades/account_controller>
+#include <rock_the_upgrades/bank>
 
 ConVar g_Cvar_CurrencyOnKillMin;
 ConVar g_Cvar_CurrencyOnKillMax;
