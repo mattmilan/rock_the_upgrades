@@ -12,6 +12,7 @@
 
 #include <rock_the_upgrades/account>
 #include <bank/natives>
+// #include <bank/printer>
 #include <rock_the_upgrades/team_bonus>
 #include "json/helpers/metastringmap"
 
@@ -96,6 +97,8 @@ methodmap Bank < MetaStringMap {
 	public native void Wipe();
 	// Reset all accounts in the bank. Syncs connected clients only
 	public native void ResetAccounts();
+	//
+	// public native BankPrinter Printer();
 
 	/* CLIENT CONNECTION */
 

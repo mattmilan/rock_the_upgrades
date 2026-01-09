@@ -24,7 +24,6 @@
 #include <bank/printer>
 
 static Bank bank;                 // single source of truth, provided via native
-static BankPrinter bankPrinter;   // Bank Composition for console output
 ConVar g_Cvar_CurrencyStarting;   // Currency for new accounts before bonuses
 ConVar g_Cvar_CurrencyMultiplier; // Global multiplier for all currency gains
 ConVar g_Cvar_CurrencyLimit;      // Optionally limit earnable currency
@@ -32,7 +31,13 @@ ConVar g_Cvar_CurrencyLimit;      // Optionally limit earnable currency
 // public void  (Handle plugin, int numParams) {
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
 	RegPluginLibrary("bank");
+
+    // Primary
+    CreateNative("TheBank", Native_TheBank);
+
+    // Secondary
     CreateNatives();
+
 	return APLRes_Success;
 }
 
@@ -53,14 +58,8 @@ void InitBank() {
         g_Cvar_CurrencyMultiplier.FloatValue,
         g_Cvar_CurrencyLimit.FloatValue
     );
-
-    bankPrinter = new BankPrinter(bank);
 }
 
 public any Native_TheBank(Handle plugin, int numParams) {
     return bank;
-}
-
-public any Native_Bank_Printer(Handle plugin, int numParams) {
-    return bankPrinter;
 }

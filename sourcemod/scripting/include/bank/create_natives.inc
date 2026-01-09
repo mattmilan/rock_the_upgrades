@@ -4,9 +4,6 @@
 #define _bank_create_natives_included
 
 void CreateNatives() {
-    /* PRIMARY ACCESSOR */
-    CreateNative("TheBank", Native_TheBank);
-    CreateNative("BankPrinter", Native_Bank_Printer);
     /* PROPERTIES */
     CreateNative("Bank.Authable.get", Native_Bank_GetAuthable); CreateNative("Bank.Authable.set", Native_Bank_SetAuthable);
     CreateNative("Bank.Multiplier.get", Native_Bank_GetMultiplier); CreateNative("Bank.Multiplier.set", Native_Bank_SetMultiplier);
