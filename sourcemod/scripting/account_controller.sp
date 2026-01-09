@@ -6,6 +6,8 @@
 #include <rock_the_upgrades/account_controller>
 
 AccountController Bank;
+BankConfig config;
+
 
 ConVar g_Cvar_CurrencyStarting;
 ConVar g_Cvar_CurrencyMultiplier;
@@ -14,16 +16,19 @@ ConVar g_Cvar_CurrencyLimit;
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
 	RegPluginLibrary("account_controller");
     CreateNative("Bank", Native_Bank);
-    CreateNative("AccountController.BaseStartingCurrency", Native_BaseStartingCurrency);
-    CreateNative("AccountController.CurrencyMultiplier", Native_CurrencyMultiplier);
-    CreateNative("AccountController.CurrencyLimit", Native_CurrencyLimit);
 	return APLRes_Success;
 }
 
 public void OnPluginStart() {
-    PrintToServer("[RTU][AccountController] (OnPluginStart)");
-    Bank = new AccountController();
+    InitConvars();
+    InitBank();
+}
 
+public any Native_Bank(Handle plugin, int numParams) {
+    return Bank;
+}
+
+void InitConvars() {
     // Starting currency
     g_Cvar_CurrencyStarting = CreateConVar("rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
 
@@ -32,22 +37,25 @@ public void OnPluginStart() {
 
 	// Limit max currency gain to encourage strategic spending
 	g_Cvar_CurrencyLimit = CreateConVar("rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
+
 }
 
-public any Native_Bank(Handle plugin, int numParams) {
-    PrintToServer("[RTU](Native_Bank)");
-    return Bank;
-}
+void InitBank() {
+    // Bank = new AccountController(
+    //     g_Cvar_CurrencyStarting.FloatValue,
+    //     g_Cvar_CurrencyMultiplier.FloatValue,
+    //     g_Cvar_CurrencyLimit.FloatValue
+    // );
+    // Bank.SetValue("test", 123);
+    // Bank.config.Print();
+    bankConfig = new BankConfig(
+        g_Cvar_CurrencyStarting.FloatValue,
+        g_Cvar_CurrencyMultiplier.FloatValue,
+        g_Cvar_CurrencyLimit.FloatValue
+    );
 
-public any Native_BaseStartingCurrency(Handle plugin, int numParams) {
-    return g_Cvar_CurrencyStarting.FloatValue
-        * g_Cvar_CurrencyMultiplier.FloatValue;
-}
+    Bank = new AccountController();
 
-public any Native_CurrencyMultiplier(Handle plugin, int numParams) {
-    return g_Cvar_CurrencyMultiplier.FloatValue;
-}
-
-public any Native_CurrencyLimit(Handle plugin, int numParams) {
-    return g_Cvar_CurrencyLimit.FloatValue;
+    Bank.SetValue("test", 123);
+    Bank.config.Print();
 }

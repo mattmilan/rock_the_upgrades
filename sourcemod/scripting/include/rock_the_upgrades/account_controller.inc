@@ -23,7 +23,7 @@ enum BANK_TRANSACTION {
 	BANK_TRANSACTION_COUNT
 }
 
-BankConfig config;
+// BankConfig config;
 
 /*
 	An AccountController is a glorified StringMap that maps SteamIDs (as
@@ -34,14 +34,24 @@ BankConfig config;
 */
 methodmap AccountController < StringMap  {
 	// Unassuming constructor
-    public AccountController() {
-		PrintToServer("[RTU][AccountController] (New)");
+    //public AccountController(float starting, float multiplier, float limit) {
+	public AccountController() {
+		PrintToServer("[RTU][Bank] (New)");
+		// config = new BankConfig(
+		// 	starting,
+		// 	multiplier,
+		// 	limit
+		// );
+		// config.Print();
 		StringMap accounts = new StringMap();
-		config.Init();
-		config.Print();
-
 		return view_as<AccountController>(accounts);
     }
+
+	// property BankConfig config {
+	// 	public get() {
+	// 		return config;
+	// 	}
+	// }
 
 	// Establish account key and track auth server status
 	// Account link/creation happens JIT during OnPlayerSpawn
@@ -92,7 +102,7 @@ methodmap AccountController < StringMap  {
 		account.currentTeam = team;
 
 		// grant one-time starting currency
-		if (account.earned < 0.001) account.earned = this.StartingCurrency(account.currentTeam);
+		if (account.earned < 0.001) account.earned = this.config.StartingCurrency(account.currentTeam);
 
 		// save changes
 		this.SetArray(account.accountKey, account, sizeof(Account));
@@ -109,7 +119,7 @@ methodmap AccountController < StringMap  {
 	// Client Name is used while auth servers are down - once restored, convert to SteamID
 	public void SetAuthServersReachable(bool reachable) {
 		// When auth servers come back online
-		if (!config.steamAuthAvailable && reachable) {
+		if (!this.config.Authable && reachable) {
 			char accountKey[MAX_AUTHID_LENGTH];
 
 			// convert client names to client steamIDs
@@ -120,12 +130,11 @@ methodmap AccountController < StringMap  {
 
 				if (!authorized) continue;
 
-				config.clientAccountKeys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
+				this.config.Keys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
 			}
 		}
 
-		config.steamAuthAvailable = reachable;
-		this.SetArray("config", config, sizeof(config));
+		this.config.Authable = reachable;
 	}
 
 	// Maintain an ArrayList of client -> SteamID to limit external resource traffic
@@ -142,9 +151,9 @@ methodmap AccountController < StringMap  {
 
 		// Fallback to client name (discouraged as spoofable but necessary if auth servers are down)
 		if (!authorized) GetClientName(client, accountKey, sizeof(accountKey));
-		config.Print();
+
 		// Update mapping
-		config.clientAccountKeys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
+		this.config.Keys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
 
 		// Advise caller if external resource was reachable
 		return authorized;
@@ -168,7 +177,7 @@ methodmap AccountController < StringMap  {
 
 	// Write string value to buffer param. Return false if empty
 	public bool GetAccountKey(int client, char accountKey[MAX_AUTHID_LENGTH]) {
-	 	return config.clientAccountKeys.GetString(client, accountKey, MAX_AUTHID_LENGTH) > 0;
+	 	return this.config.Keys.GetString(client, accountKey, MAX_AUTHID_LENGTH) > 0;
 	}
 
 	public bool AccountExists(int client) {
@@ -215,7 +224,7 @@ methodmap AccountController < StringMap  {
 		Account a; this.Fetch(client, a);
 
 		// Adjust all gains by global multiplier
-		amount *= this.CurrencyMultiplier();
+		amount *= this.config.Multiplier;
 
 		// Apply amount to the correct field
 		switch (transaction) {
@@ -278,7 +287,7 @@ methodmap AccountController < StringMap  {
 		// Increase bonus starting currency for late joiners
 		TeamBonus bonus;
 		bonus.Set(amount, team);
-		config.Add(bonus);
+		this.config.Add(bonus);
 
 		// Iteration vars
 		Account a;
@@ -322,9 +331,9 @@ methodmap AccountController < StringMap  {
 	// Limit maximum earnable currency (disabled by default)
 	public float LimitCurrency(float amount) {
 		// if no limit or under limit, amount is valid
-		if (this.CurrencyLimit() < 0 || amount < this.CurrencyLimit()) return amount;
+		if (this.config.Limit < 0 || amount < this.config.Limit) return amount;
 
-		return this.CurrencyLimit();
+		return this.config.Limit;
 	}
 
 	// Get the balance for the client's current class
@@ -332,21 +341,6 @@ methodmap AccountController < StringMap  {
 		Account a;
 		this.Fetch(client, a);
 		return a.Balance();
-	}
-	// public native float Balance(int client);
-	// Starting currency before bonuses
-	public native float BaseStartingCurrency();
-	public native float CurrencyMultiplier();
-	public native float CurrencyLimit();
-	// public float BaseStartingCurrency() {
-	// 	return g_Cvar_CurrencyStarting.FloatValue
-	// 		* g_Cvar_CurrencyMultiplier.FloatValue;
-	// }
-
-	// Starting currency including bonuses
-	public float StartingCurrency(TFTeam team) {
-		return this.BaseStartingCurrency()
-			 + config.Bonus(team);
 	}
 
 	// Synchronize bank values with actual client currency
@@ -389,13 +383,13 @@ methodmap AccountController < StringMap  {
 	// Call from `OnMapEnd`
 	public void Wipe() {
 		this.Clear();
-		config.Reset();
+		this.config.Reset();
 	}
 
 	// Reset all accounts in the bank. Syncs connected clients only
 	public void ResetAccounts() {
 		// Revert starting currency bonuses earned from objectives
-		config.bonuses.Clear();
+		this.config.Bonuses.Clear();
 
 		// Iteration vars
 		StringMapSnapshot keys = this.Snapshot();
@@ -411,7 +405,7 @@ methodmap AccountController < StringMap  {
 			this.GetArray(accountKey, account, sizeof(Account));
 
 			// Perform reset
-			account.Reset(this.StartingCurrency(account.currentTeam));
+			account.Reset(this.config.StartingCurrency(account.currentTeam));
 
 			// Save Changes
 			this.SetArray(accountKey, account, sizeof(Account));
@@ -443,7 +437,7 @@ methodmap AccountController < StringMap  {
 		}
 
 		PrintToServer("=================================================================================");
-		PrintToServer("[RTU] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.StartingCurrency(TFTeam_Red), this.StartingCurrency(TFTeam_Blue));
+		PrintToServer("[RTU] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.config.StartingCurrency(TFTeam_Red), this.config.StartingCurrency(TFTeam_Blue));
 		PrintToServer("---------------------------------------------------------------------------------");
 		PrintToServer("Account Key           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
 		PrintToServer("---------------------------------------------------------------------------------");
