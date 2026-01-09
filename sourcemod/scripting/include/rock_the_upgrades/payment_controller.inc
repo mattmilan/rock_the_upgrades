@@ -1,5 +1,5 @@
 /**
- * Rock The Upgrades: Currency Controller
+ * Rock The Upgrades: Payment Controller
  * TODO: description
  */
 
@@ -11,11 +11,7 @@
 #include "shared"
 #include <tf2>
 
-// StringMap RevengeTracker; // Bonus currency for revenge kills
-
 methodmap PaymentController < StringMap{
-	// Returns a random float clamped to a convar-defined range, then apply multipliers
-	// form. CurrencyOnKill
 	public PaymentController() {
 		// RevengeTracker = new StringMap();
 		StringMap RevengeTracker = new StringMap();

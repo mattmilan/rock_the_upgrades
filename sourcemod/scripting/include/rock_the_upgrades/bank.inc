@@ -193,7 +193,7 @@ methodmap Bank < MetaStringMap {
 		char keyName[MAX_AUTHID_LENGTH];
 
 		// Primary Lookup: SteamID
-		this.GetAccountKey(client, keyName)
+		this.GetAccountKey(client, keyName);
 
 		// Fallback: Client Name (discouraged as spoofable but necessary if auth servers are down)
 		if (keyName[0] == '\0') GetClientName(client, keyName, sizeof(keyName));
