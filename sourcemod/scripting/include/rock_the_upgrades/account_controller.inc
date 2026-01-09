@@ -27,16 +27,16 @@ enum BANK_TRANSACTION {
 // BankConfig config;
 
 /*
-	An AccountController is a glorified MetaStringMap that maps SteamIDs (as
+	An Bank is a glorified MetaStringMap that maps SteamIDs (as
 	  accountKey) to Accounts. These keys fall back to client names if Steam Auth
 	  Servers are unreachable, and are restored once connectivity is restored
 	It handles client connection, account management, map resets, and supports
 
 */
 
-methodmap AccountController < MetaStringMap {
-	public AccountController(float starting, float multiplier, float limit) {
-		AccountController self = view_as<AccountController>(new MetaStringMap());
+methodmap Bank < MetaStringMap {
+	public Bank(float starting, float multiplier, float limit) {
+		Bank self = view_as<Bank>(new MetaStringMap());
 
 		self.Keys = new ArrayList(MAX_AUTHID_LENGTH, MaxClients + 1);
 		self.Bonuses = new ArrayList(sizeof(TeamBonus));
