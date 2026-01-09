@@ -127,7 +127,7 @@ public void OnPluginStart() {
 		if (!IsClientConnected(i)) continue;
 
 		OnClientConnected(i);
-		OnClientAuthorized(i);
+		OnClientAuthorized(i, "");
 	}
 }
 
@@ -181,7 +181,7 @@ public void OnClientConnected(int client) {
 }
 
 // Bank requires a unique trusted identifier which is now available
-public void OnClientAuthorized(int client) {
+public void OnClientAuthorized(int client, const char[] authString) {
 	if (IsFakeClient(client)) return;
 
 	Bank().Connect(client);
