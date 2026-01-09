@@ -17,30 +17,46 @@
 
 #include <sourcemod>
 #include <tf2>
-#include <tf2_stocks>
 #include <rock_the_upgrades/shared>
 #include <rock_the_upgrades/account_controller>
 
-// single source of truth
-static AccountController Bank;
-
+static AccountController Bank;    // single source of truth
 ConVar g_Cvar_CurrencyStarting;   // Currency for new accounts before bonuses
 ConVar g_Cvar_CurrencyMultiplier; // Global multiplier for all currency gains
 ConVar g_Cvar_CurrencyLimit;      // Optionally limit earnable currency
 
+
+public any Native_Bank(Handle plugin, int numParams) {
+    return Bank;
+}
+
+public any Native_Bank_Connect(Handle plugin, int numParams) {
+    AccountController bank = view_as<AccountController>(GetNativeCell(1));
+    int client = view_as<int>(GetNativeCell(2));
+
+	// Maps client -> steamID (fallback: client name)
+		bool authorized = bank.RegisterAccountKey(client);
+
+		// Track steam auth server outages and recoveries
+		bank.SetAuthServersReachable(authorized);
+
+		// Create new accounts or reconnect existing ones
+		bank.FindOrCreateAccount(client);
+
+		return authorized;
+}
+
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
 	RegPluginLibrary("account_controller");
     CreateNative("Bank", Native_Bank);
+    CreateNative("Bank.Connect", Native_Bank_Connect);
+
 	return APLRes_Success;
 }
 
 public void OnPluginStart() {
     InitConvars();
     InitBank();
-}
-
-public any Native_Bank(Handle plugin, int numParams) {
-    return Bank;
 }
 
 void InitConvars() {

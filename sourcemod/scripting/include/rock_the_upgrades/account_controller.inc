@@ -27,11 +27,11 @@ enum BANK_TRANSACTION {
 // BankConfig config;
 
 /*
-	An AccountController is a glorified StringMap that maps SteamIDs (as
-	accountKey) to Accounts. These keys fall back to client names if Steam Auth
-	Servers are unreachable.
+	An AccountController is a glorified MetaStringMap that maps SteamIDs (as
+	  accountKey) to Accounts. These keys fall back to client names if Steam Auth
+	  Servers are unreachable, and are restored once connectivity is restored
 	It handles client connection, account management, map resets, and supports
- 	reconnecting clients. For performance, it caches SteamID lookups
+
 */
 
 methodmap AccountController < MetaStringMap {
@@ -81,18 +81,20 @@ methodmap AccountController < MetaStringMap {
 
 	// Establish account key and track auth server status
 	// Account link/creation happens JIT during OnPlayerSpawn
-	public bool Connect(int client) {
-		// Maps client -> steamID (fallback: client name)
-		bool authorized = this.RegisterAccountKey(client);
+	// public bool Connect(int client) {
+	// 	// Maps client -> steamID (fallback: client name)
+	// 	bool authorized = this.RegisterAccountKey(client);
 
-		// Track steam auth server outages and recoveries
-		this.SetAuthServersReachable(authorized);
+	// 	// Track steam auth server outages and recoveries
+	// 	this.SetAuthServersReachable(authorized);
 
-		// Create new accounts or reconnect existing ones
-		this.FindOrCreateAccount(client);
+	// 	// Create new accounts or reconnect existing ones
+	// 	this.FindOrCreateAccount(client);
 
-		return authorized;
-	}
+	// 	return authorized;
+	// }
+
+	public native bool Connect(int client);
 
 	// Creates new accounts or reconnects existing ones
 	public void FindOrCreateAccount(int client) {
