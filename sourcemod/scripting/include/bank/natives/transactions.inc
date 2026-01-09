@@ -10,7 +10,7 @@ public void Native_Bank_Transaction(Handle plugin, int numParams) {
     BANK_TRANSACTION transaction = view_as<BANK_TRANSACTION>(GetNativeCell(4));
 
     // Fetch account
-    Account a; b.Fetch(client, a);
+    Account a; Accounts.Find(b, client, a);
 
     // Adjust all gains by global multiplier
     amount *= b.Multiplier;

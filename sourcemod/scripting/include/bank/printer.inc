@@ -46,7 +46,7 @@ methodmap BankPrinter < Handle {
     public static void PrintAccount(Bank b, int client) {
         Account a;
 
-        bool accountFound = b.Fetch(client, a);
+        bool accountFound = Accounts.Find(b, client, a);
 
         ReplyToCommand(client,
             accountFound ?

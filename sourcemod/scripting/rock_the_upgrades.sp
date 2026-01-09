@@ -189,14 +189,14 @@ public void OnClientConnected(int client) {
 public void OnClientAuthorized(int client, const char[] authString) {
 	if (IsFakeClient(client)) return;
 
-	bank.Connect(client);
+	Connections.Connect(bank, client);
 }
 
 // NOTE: We count votes because the vote might pass if a player disconnects without voting
 public void OnClientDisconnect(int client) {
 	if (IsFakeClient(client)) return;
 
-	bank.Disconnect(client);
+	Connections.Disconnect(bank, client);
 	votes.Drop(client);
 	if (!votes.Count()) return;
 
@@ -270,7 +270,7 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 		int client = clients[i];
 		if (!ValidClient(client)) continue;
 
-		bank.GetAccountKey(client, accountKey);
+		Connections.AccountKey(bank, client, accountKey);
 		combatTimer.Add(accountKey);
 		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
@@ -358,7 +358,7 @@ Action Command_RTU(int client, int args) {
 	}
 	else {
 		char accountKey[MAX_AUTHID_LENGTH];
-		bank.GetAccountKey(client, accountKey);
+		Connections.AccountKey(bank, client, accountKey);
 		pocketMenu.Show(client, accountKey);
 	}
 

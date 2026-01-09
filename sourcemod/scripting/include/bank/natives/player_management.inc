@@ -7,7 +7,7 @@ public any Native_Bank_Balance(Handle plugin, int numParams) {
     Bank b = view_as<Bank>(GetNativeCell(1));
     int client = view_as<int>(GetNativeCell(2));
 
-    Account a; /*=*/ b.Fetch(client, a);
+    Account a; Accounts.Find(b, client, a);// b.Fetch(client, a);
 
     return a.Balance();
 }
@@ -74,7 +74,8 @@ public any Native_Bank_OnPlayerSpawn(Handle plugin, int numParams) {
     int client = view_as<int>(GetNativeCell(2));
 
     // Apply changes and indicate if revert is needed
-    bool revert = b.UpdateAccount(
+    bool revert = Accounts.Update(
+        b,
         client,
         view_as<TFClassType>(GetNativeCell(3)),
         view_as<TFTeam>(GetNativeCell(4))
@@ -90,7 +91,7 @@ public any Native_Bank_NeedsRevert(Handle plugin, int numParams) {
     Bank b = view_as<Bank>(GetNativeCell(1));
     int client = view_as<int>(GetNativeCell(2));
 
-    Account a; /*=*/ b.Fetch(client, a);
+    Account a; Accounts.Find(b, client, a);
     return a.NeedsRevert();
 }
 
@@ -98,9 +99,9 @@ public void Native_Bank_Revert(Handle plugin, int numParams) {
     Bank b = view_as<Bank>(GetNativeCell(1));
     int client = view_as<int>(GetNativeCell(2));
 
-    Account a;
-    b.Fetch(client, a);
+    Account a; Accounts.Find(b, client, a);
     a.Revert();
-    b.Data.SetArray(a.accountKey, a, sizeof(Account));
+    Accounts.Save(b, a);
+
     b.Sync(client);
 }

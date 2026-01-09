@@ -15,6 +15,8 @@
 // #include <bank/printer>
 #include <rock_the_upgrades/team_bonus>
 #include "json/helpers/metastringmap"
+#include "bank/accounts"
+#include "bank/connections"
 
 // TODO: isolate via longer name
 enum BANK_TRANSACTION {
@@ -81,6 +83,13 @@ methodmap Bank < MetaStringMap {
 		public native set(ArrayList val);
 	}
 
+	// TODO: native
+	property TypedStringMap Accounts {
+		public get() {
+			return this.Data;
+		}
+	}
+
 	/* STATE MANAGEMENT */
 
 	// Client Name is used while auth servers are down - once restored, convert to SteamID
@@ -102,34 +111,35 @@ methodmap Bank < MetaStringMap {
 
 	/* CLIENT CONNECTION */
 
-	// Account link/creation happens JIT during OnPlayerSpawn
-	public native bool Connect(int client);
-	// Mark account as disconnected. May reconnect until account wipe at map end
-	public native void Disconnect(int client);
-	// Marks an account as connected or disconnected (for visibility)
-	// Disconnected accounts have their spending reset (retains earned currency)
-	public native void SetConnection(int client, bool connected);
-	// Maintain an ArrayList of client -> SteamID to limit external resource traffic
-	// Entries may be safely stomped while clients connect/reconnect
-	// While auth servers are down, Client Name is used instead (discouraged as spoofable)
-	// `SetAuthServersReachable` detects restoration and handles recovery of player name -> steamID
-	// Returns true if Steam Auth Servers were reachable
-	public native bool RegisterAccountKey(int client);
+	// // Account link/creation happens JIT during OnPlayerSpawn
+	// public native bool Connect(int client);
+	// // Mark account as disconnected. May reconnect until account wipe at map end
+	// public native void Disconnect(int client);
+	// // Marks an account as connected or disconnected (for visibility)
+	// // Disconnected accounts have their spending reset (retains earned currency)
+	// public native void SetConnection(int client, bool connected);
+	// // Maintain an ArrayList of client -> SteamID to limit external resource traffic
+	// // Entries may be safely stomped while clients connect/reconnect
+	// // While auth servers are down, Client Name is used instead (discouraged as spoofable)
+	// // `SetAuthServersReachable` detects restoration and handles recovery of player name -> steamID
+	// // Returns true if Steam Auth Servers were reachable
+	// public native bool RegisterAccountKey(int client);
+	// // Write string value to buffer param. Return false if empty
+	// public native bool GetAccountKey(int client, char accountKey[MAX_AUTHID_LENGTH]);
 
 	/* ACCOUNT MANAGEMENT */
 
-	// Establish account key and track auth server status
-	// Creates new accounts or reconnects existing ones
-	public native void FindOrCreateAccount(int client);
-	// Write string value to buffer param. Return false if empty
-	public native bool GetAccountKey(int client, char accountKey[MAX_AUTHID_LENGTH]);
-	// Updates the underlying stringmap with a new account for the given Account Key
-	public native void CreateAccount(int client, char accountKey[MAX_AUTHID_LENGTH]);
-	// Sync data with game state
-	public native bool UpdateAccount(int client, TFClassType classType, TFTeam team);
-	// Account Lookup via Client -> Account Key(SteamID|Name) -> Account
-	// Follow with `SetArray` to save changes
-	public native bool Fetch(int client, Account a);
+	// // Establish account key and track auth server status
+	// // Creates new accounts or reconnects existing ones
+	// public native void FindOrCreateAccount(int client);
+
+	// // Updates the underlying stringmap with a new account for the given Account Key
+	// public native void CreateAccount(int client, char accountKey[MAX_AUTHID_LENGTH]);
+	// // Sync data with game state
+	// public native bool UpdateAccount(int client, TFClassType classType, TFTeam team);
+	// // Account Lookup via Client -> Account Key(SteamID|Name) -> Account
+	// // Follow with `SetArray` to save changes
+	// public native bool Fetch(int client, Account a);
 
 	/* PLAYER MANAGEMENT */
 

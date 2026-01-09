@@ -4,40 +4,40 @@
 #define _bank_state_management_natives_included
 
 /* STATE MANAGEMENT */
-public void Native_Bank_SetAuthServersReachable(Handle plugin, int numParams) {
-    Bank b = view_as<Bank>(GetNativeCell(1));
-    bool reachable = view_as<bool>(GetNativeCell(2));
+// public void Native_Bank_SetAuthServersReachable(Handle plugin, int numParams) {
+//     Bank b = view_as<Bank>(GetNativeCell(1));
+//     bool reachable = view_as<bool>(GetNativeCell(2));
 
-    // Servers Reactivated
-    if (reachable && !b.Authable) {
-        // Iterator buffer
-        char nameKey[MAX_AUTHID_LENGTH];
-        char authKey[MAX_AUTHID_LENGTH];
+//     // Servers Reactivated
+//     if (reachable && !b.Authable) {
+//         // Iterator buffer
+//         char nameKey[MAX_AUTHID_LENGTH];
+//         char authKey[MAX_AUTHID_LENGTH];
 
-        Account account;
+//         Account account;
 
-        for (int key = 0; key < b.Keys.Length; key++) {
-            // Write name to first buffer
-            b.Keys.GetString(key, nameKey, sizeof(nameKey));
+//         for (int key = 0; key < b.Keys.Length; key++) {
+//             // Write name to first buffer
+//             b.Keys.GetString(key, nameKey, sizeof(nameKey));
 
-            // Presence
-            if (!b.GetArray(nameKey, account, sizeof(Account)))
-                continue;
+//             // Presence
+//             if (!b.GetArray(nameKey, account, sizeof(Account)))
+//                 continue;
 
-            // Write AuthID to second buffer
-            GetClientAuthId(key, AuthId_SteamID64, authKey, sizeof(authKey));
+//             // Write AuthID to second buffer
+//             GetClientAuthId(key, AuthId_SteamID64, authKey, sizeof(authKey));
 
-            // Update accountKey from name to auth
-            b.Keys.SetString(key, authKey, sizeof(authKey));
+//             // Update accountKey from name to auth
+//             b.Keys.SetString(key, authKey, sizeof(authKey));
 
-            // Update account index from name for auth
-            b.SetArray(authKey, account, sizeof(Account));
-            b.Remove(nameKey);
-        }
-    }
+//             // Update account index from name for auth
+//             b.SetArray(authKey, account, sizeof(Account));
+//             b.Remove(nameKey);
+//         }
+//     }
 
-    b.Authable = reachable;
-}
+//     b.Authable = reachable;
+// }
 
 public any Native_Bank_StartingCurrency(Handle plugin, int numParams) {
     Bank b = view_as<Bank>(GetNativeCell(1));
