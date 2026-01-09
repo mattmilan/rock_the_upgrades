@@ -27,6 +27,7 @@ ConVar g_Cvar_CurrencyOnDomination;
 // ConVar g_Cvar_CurrencyOverTimeFrequency;
 
 PaymentController Payment;
+Bank bank;
 
 native Bank TheBank();
 
@@ -37,6 +38,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 public void OnPluginStart() {
 	Payment = new PaymentController();
+	bank = TheBank();
     InitConVars();
     HookEvents();
 }
@@ -44,7 +46,6 @@ public void OnPluginStart() {
 public void OnPluginEnd() {
 	Payment.Close();
 }
-
 
 // Kills earn currency
 Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
@@ -63,9 +64,9 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 
 	float reward = Payment.ForKill(revenge);
 
-	if (ValidClient(killer))   TheBank().Deposit(reward, killer);
-	if (ValidClient(assister)) TheBank().Deposit(reward, assister);
-	if (ValidClient(victim))   TheBank().Burn(Payment.DeathPenalty(victim), victim);
+	if (ValidClient(killer))   bank.Deposit(reward, killer);
+	if (ValidClient(assister)) bank.Deposit(reward, assister);
+	if (ValidClient(victim))   bank.Burn(Payment.DeathPenalty(victim), victim);
 
 	return Plugin_Continue;
 }
@@ -82,15 +83,15 @@ Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)
 	int assister = GetClientOfUserId(event.GetInt("assister"));
 	float reward = Payment.ForDestruction(event);
 
-	if (ValidClient(attacker)) TheBank().Deposit(reward, attacker);
-	if (ValidClient(assister)) TheBank().Deposit(reward, assister);
+	if (ValidClient(attacker)) bank.Deposit(reward, attacker);
+	if (ValidClient(assister)) bank.Deposit(reward, assister);
 
 	return Plugin_Continue;
 }
 
 // Capturing a point earns team currency
 Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
-	TheBank().DepositAll(
+	bank.DepositAll(
 		Payment.ForPointCapture(),
 		.team=view_as<TFTeam>(event.GetInt("team"))
 	);
@@ -106,7 +107,7 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 	// event.GetInt("team") won't work as some maps have inverted flag logic
 	int player = event.GetInt("player");
 
-	TheBank().DepositAll(
+	bank.DepositAll(
 		Payment.ForFlagCapture(),
 		.team=view_as<TFTeam>(GetClientTeam(player))
 	);
@@ -119,7 +120,7 @@ Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast
 	// Handle domination
     int dominator = GetClientOfUserId(event.GetInt("dominator"));
 	int dominated = GetClientOfUserId(event.GetInt("dominated"));
-	if (ValidClient(dominator)) TheBank().Deposit(Payment.ForDomination(), dominator);
+	if (ValidClient(dominator)) bank.Deposit(Payment.ForDomination(), dominator);
 
 	// Track revenge
 	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
