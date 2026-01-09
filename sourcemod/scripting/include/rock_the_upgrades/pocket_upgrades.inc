@@ -3,7 +3,10 @@
  * TODO: description
  */
 
-// applies to both global lock message and client-specific locks
+#if defined _pocket_upgrades_included
+ #endinput
+#endif
+#define _pocket_upgrades_included
 
 enum struct PocketUpgrades {
 

@@ -3,6 +3,11 @@
  * TODO: description
  */
 
+#if defined _account_included
+ #endinput
+#endif
+#define _account_included
+
 #pragma newdecls required
 #pragma semicolon 1
 

@@ -3,9 +3,16 @@
  * TODO: description
  */
 
+#if defined _account_controller_included
+ #endinput
+#endif
+#define _account_controller_included
+
 #pragma newdecls required
+
 #include "account.inc"
 #include "bank_config.inc"
+#include "team_bonus.inc"
 
 // TODO: isolate via longer name
 enum BANK_TRANSACTION {

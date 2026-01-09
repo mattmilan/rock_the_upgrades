@@ -2,6 +2,12 @@
  * Rock The Upgrades: Combat Timer
  * TODO: description
  */
+
+#if defined _combat_timer_included
+ #endinput
+#endif
+#define _combat_timer_included
+
 enum COMBAT_TIMER_STATUS {
         COMBAT_TIMER_UNSET=0,
         COMBAT_TIMER_STOPPED,

@@ -1,7 +1,16 @@
 /**
  * Rock The Upgrades: BankConfig
- * TODO: description
+ * Banks extend stringmap but their entries are reserved for accounts
+ * BankConfig is a place for
  */
+
+#if defined _bank_config_included
+ #endinput
+#endif
+#define _bank_config_included
+
+#include "team_bonus"
+#include <tf2>
 
 enum struct BankConfig {
 	// Prevent re-initialization
