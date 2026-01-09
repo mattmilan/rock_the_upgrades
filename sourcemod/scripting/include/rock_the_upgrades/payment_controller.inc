@@ -3,6 +3,11 @@
  * TODO: description
  */
 
+#if defined _payment_controller_included
+ #endinput
+#endif
+#define _payment_controller_included
+
 #include "shared"
 #include <tf2>
 

@@ -1,3 +1,13 @@
+/**
+ * Rock The Upgrades: Shared
+ * Centralized shared functions and utilities
+ */
+
+#if defined _rock_the_upgrades_shared_included
+ #endinput
+#endif
+#define _rock_the_upgrades_shared_included
+
 bool ValidPlayer(int client, TFClassType classType, TFTeam team) {
 	return ValidClient(client) &&
 		ValidClass(classType) &&

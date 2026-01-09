@@ -3,6 +3,12 @@
  * TODO: description
  */
 
+
+#if defined _combat_timer_included
+ #endinput
+#endif
+#define _combat_timer_included
+
 #define DEFAULT_COMBAT_TIMEOUT 3
 
 enum COMBAT_TIMER_STATUS {

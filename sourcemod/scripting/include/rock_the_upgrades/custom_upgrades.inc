@@ -1,3 +1,13 @@
+/**
+ * Rock The Upgrades: Custom Upgrades
+ * Handles loading and applying custom upgrades files per-map or globally
+ */
+
+#if defined _custom_upgrades_included
+ #endinput
+#endif
+#define _custom_upgrades_included
+
 static const char UPGRADES_ROOT_PATH[] = "scripts/items";
 static const char UPGRADES_PREFIX[]    = "bangerz";
 static const char UPGRADES_SUFFIX[]    = "upgrades.txt";

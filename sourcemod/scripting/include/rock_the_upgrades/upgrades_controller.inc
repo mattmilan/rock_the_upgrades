@@ -3,6 +3,11 @@
  * TODO: description
  */
 
+#if defined _upgrades_controller_included
+ #endinput
+#endif
+#define _upgrades_controller_included
+
 #include "../tf2attributes.inc"
 
 // Enum representing the various states the upgrades system can be in

@@ -1,3 +1,13 @@
+/**
+ * Rock The Upgrades: Voting
+ * Handles player voting to enable the upgrade system
+ */
+
+#if defined _voting_included
+ #endinput
+#endif
+#define _voting_included
+
 static int PlayerCount;             // Number of connected clients (excluding bots)
 static bool WaitingForPlayers;      // Disallows voting while "Waiting for Players"
 static bool Passed;                 // Stores the success of a passing vote count

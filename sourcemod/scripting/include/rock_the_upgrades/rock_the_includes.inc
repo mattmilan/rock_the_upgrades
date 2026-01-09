@@ -1,3 +1,13 @@
+/**
+ * Rock The Upgrades: Includes
+ * Centralized include file for all Rock The Upgrades components
+ */
+
+#if defined _rock_the_includes_included
+ #endinput
+#endif
+#define _rock_the_includes_included
+
 // Shared functions
 #include "shared"
 
