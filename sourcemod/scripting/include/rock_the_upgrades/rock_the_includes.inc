@@ -17,10 +17,7 @@
 // Manages configurable currency gains and losses across various events
 #include "payment_controller"
 
-// Manages player accounts, currency balances, and spending
-#include "bank"
 
-#include "bank_printer"
 
 // Persistent, multi-target timer
 #include "combat_timer"

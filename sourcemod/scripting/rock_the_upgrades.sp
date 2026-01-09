@@ -84,6 +84,9 @@
 #include <tf2>
 
 #include <rock_the_upgrades/rock_the_includes>
+#include <bank>
+#include <bank/printer>
+
 
 #pragma semicolon 1
 #pragma newdecls required

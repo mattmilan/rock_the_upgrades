@@ -1,4 +1,9 @@
-#include <rock_the_upgrades/bank>
+#if defined _bank_printer_included
+ #endinput
+#endif
+#define _bank_printer_included
+
+#include "../bank"
 
 methodmap BankPrinter < Bank {
     public BankPrinter(Bank b) {
