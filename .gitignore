@@ -1,6 +1,8 @@
 *
 !*/
 !**/sourcemod/scripting/include/rock_the_upgrades/*
+!**/sourcemod/scripting/include/bank/*
+!bank.*
 !rock_the_upgrades.*
 !account_controller.sp
 !payment_controller.sp
@@ -10,5 +12,5 @@
 !rock_the_includes.inc
 !LICENSE
 !README.md
-
+*.smx
 *.code-workspace

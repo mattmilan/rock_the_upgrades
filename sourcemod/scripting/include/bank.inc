@@ -10,9 +10,9 @@
 
 #pragma newdecls required
 
-#include "account.inc"
-#include "bank_config.inc"
-#include "team_bonus.inc"
+#include <rock_the_upgrades/account>
+#include <bank/natives>
+#include <rock_the_upgrades/team_bonus>
 #include "json/helpers/metastringmap"
 
 // TODO: isolate via longer name
@@ -23,8 +23,6 @@ enum BANK_TRANSACTION {
 	BANK_BURN,
 	BANK_TRANSACTION_COUNT
 }
-
-// BankConfig config;
 
 /*
 	An Bank is a glorified MetaStringMap that maps SteamIDs (as
