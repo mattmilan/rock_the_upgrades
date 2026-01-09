@@ -98,19 +98,19 @@ methodmap PaymentController < StringMap{
 
 	// TODO: Bank plugin detection, and fallback in it's absence
 	public void Deposit(float amount, int client) {
-		Bank().Deposit(amount, client);
+		TheBank().Deposit(amount, client);
 	}
 
 	public void Burn(float amount, int client) {
-		Bank().Burn(amount, client);
+		TheBank().Burn(amount, client);
 	}
 
 	public void DepositAll(float amount, TFTeam team = TFTeam_Unassigned) {
-		Bank().DepositAll(amount, team);
+		TheBank().DepositAll(amount, team);
 	}
 
 	public float Balance(int client) {
-		return Bank().Balance(client);
+		return TheBank().Balance(client);
 	}
 
 
