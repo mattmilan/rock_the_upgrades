@@ -23,21 +23,22 @@ enum BANK_TRANSACTION {
 	BANK_TRANSACTION_COUNT
 }
 
+BankConfig config;
+
 /*
 	An AccountController is a glorified StringMap that maps SteamIDs (as
 	accountKey) to Accounts. These keys fall back to client names if Steam Auth
 	Servers are unreachable.
 	It handles client connection, account management, map resets, and supports
  	reconnecting clients. For performance, it caches SteamID lookups
-	TODO: DRY the skipping of the 'config' key
 */
 methodmap AccountController < StringMap  {
 	// Unassuming constructor
     public AccountController() {
+		PrintToServer("[RTU][AccountController] (New)");
 		StringMap accounts = new StringMap();
-		BankConfig config;
 		config.Init();
-		accounts.SetArray("config", config, sizeof(config));
+		config.Print();
 
 		return view_as<AccountController>(accounts);
     }
@@ -52,7 +53,6 @@ methodmap AccountController < StringMap  {
 		this.SetAuthServersReachable(authorized);
 
 		// Create new accounts or reconnect existing ones
-		// TODO: can't set starting currency for new accounts until first valid spawn when team is selected
 		this.FindOrCreateAccount(client);
 
 		return authorized;
@@ -108,9 +108,6 @@ methodmap AccountController < StringMap  {
 
 	// Client Name is used while auth servers are down - once restored, convert to SteamID
 	public void SetAuthServersReachable(bool reachable) {
-		BankConfig config;
-		this.GetArray("config", config, sizeof(config));
-
 		// When auth servers come back online
 		if (!config.steamAuthAvailable && reachable) {
 			char accountKey[MAX_AUTHID_LENGTH];
@@ -145,12 +142,9 @@ methodmap AccountController < StringMap  {
 
 		// Fallback to client name (discouraged as spoofable but necessary if auth servers are down)
 		if (!authorized) GetClientName(client, accountKey, sizeof(accountKey));
-
-		// Update and save changes to mapping
-		BankConfig config;
-		this.GetArray("config", config, sizeof(config));
+		config.Print();
+		// Update mapping
 		config.clientAccountKeys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
-		this.SetArray("config", config, sizeof(config));
 
 		// Advise caller if external resource was reachable
 		return authorized;
@@ -174,8 +168,6 @@ methodmap AccountController < StringMap  {
 
 	// Write string value to buffer param. Return false if empty
 	public bool GetAccountKey(int client, char accountKey[MAX_AUTHID_LENGTH]) {
-		BankConfig config;
-		this.GetArray("config", config, sizeof(config));
 	 	return config.clientAccountKeys.GetString(client, accountKey, MAX_AUTHID_LENGTH) > 0;
 	}
 
@@ -284,10 +276,9 @@ methodmap AccountController < StringMap  {
 	// Deposit money to all accounts whether connected or not. Optional team filter
 	public void DepositAll(float amount, TFTeam team=TFTeam_Unassigned) {
 		// Increase bonus starting currency for late joiners
-		BankConfig config;
-		this.GetArray("config", config, sizeof(config));
-		config.AddBonusStartingCurrency(amount, team);
-		this.SetArray("config", config, sizeof(config));
+		TeamBonus bonus;
+		bonus.Set(amount, team);
+		config.Add(bonus);
 
 		// Iteration vars
 		Account a;
@@ -300,9 +291,6 @@ methodmap AccountController < StringMap  {
 		for(int i = 0; i < keys.Length; i++) {
 			// Grab Account Key (SteamID|Name)
 			keys.GetKey(i, accountKey, MAX_AUTHID_LENGTH);
-
-			// Skip config entry
-			if (strcmp(accountKey, "config") == 0) continue;
 
 			// Fetch account
 			this.GetArray(accountKey, a, sizeof(Account));
@@ -357,7 +345,6 @@ methodmap AccountController < StringMap  {
 
 	// Starting currency including bonuses
 	public float StartingCurrency(TFTeam team) {
-		BankConfig config; this.GetArray("config", config, sizeof(config));
 		return this.BaseStartingCurrency()
 			 + config.Bonus(team);
 	}
@@ -387,9 +374,7 @@ methodmap AccountController < StringMap  {
 		float current = this.GetClientCurrency(client);
 		float balance = this.Balance(client);
 
-		int delta = RoundToCeil(balance - current);
-
-		return delta;
+		return RoundToCeil(balance - current);
 	}
 
 	// Resolve account balance deltas arising from spent/refunded currency
@@ -404,20 +389,13 @@ methodmap AccountController < StringMap  {
 	// Call from `OnMapEnd`
 	public void Wipe() {
 		this.Clear();
-		// Re-add config entry
-		BankConfig config;
-		config.Init();
-		this.SetArray("config", config, sizeof(config));
+		config.Reset();
 	}
 
 	// Reset all accounts in the bank. Syncs connected clients only
 	public void ResetAccounts() {
 		// Revert starting currency bonuses earned from objectives
-		BankConfig config;
-		this.GetArray("config", config, sizeof(config));
-		config.bonusStartingCurrencyRed = 0.0;
-		config.bonusStartingCurrencyBlu = 0.0;
-		this.SetArray("config", config, sizeof(config));
+		config.bonuses.Clear();
 
 		// Iteration vars
 		StringMapSnapshot keys = this.Snapshot();
@@ -428,9 +406,6 @@ methodmap AccountController < StringMap  {
 		for(int i = 0; i < keys.Length; i++) {
 			// Store Account Key (SteamID|Name)
 			keys.GetKey(i, accountKey, MAX_AUTHID_LENGTH);
-
-			// Skip config entry
-			if (strcmp(accountKey, "config") == 0) continue;
 
 			// Fetch account
 			this.GetArray(accountKey, account, sizeof(Account));
@@ -487,7 +462,7 @@ methodmap AccountController < StringMap  {
 		for(int i = 0; i < keys.Length; i++) {
 			// Grab Account Key (SteamID|Name)
 			keys.GetKey(i, accountKey, sizeof(accountKey));
-			if (strcmp(accountKey, "config") == 0) continue;
+
 			bool accountFound = this.GetArray(accountKey, a, sizeof(Account));
 
 			PrintToServer(
@@ -518,7 +493,6 @@ methodmap AccountController < StringMap  {
 			int size = keys.KeyBufferSize(i);
 			char[] accountKey = new char[size];
 			keys.GetKey(i, accountKey, size);
-			if (strcmp(accountKey, "config") == 0) continue;
 			PrintToServer("[RTU][Accounts] Index: %d, Account Key: %s", i, accountKey);
 		}
 	}

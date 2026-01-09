@@ -6,7 +6,6 @@
 #include <rock_the_upgrades/account_controller>
 
 AccountController Bank;
-BankConfig bankConfig;
 
 ConVar g_Cvar_CurrencyStarting;
 ConVar g_Cvar_CurrencyMultiplier;
@@ -22,9 +21,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 }
 
 public void OnPluginStart() {
-    PrintToServer("[RTU][BANK.sp] Initializing Bank System");
+    PrintToServer("[RTU][AccountController] (OnPluginStart)");
     Bank = new AccountController();
-    bankConfig.Init();
+
     // Starting currency
     g_Cvar_CurrencyStarting = CreateConVar("rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
 
@@ -36,6 +35,7 @@ public void OnPluginStart() {
 }
 
 public any Native_Bank(Handle plugin, int numParams) {
+    PrintToServer("[RTU](Native_Bank)");
     return Bank;
 }
 
