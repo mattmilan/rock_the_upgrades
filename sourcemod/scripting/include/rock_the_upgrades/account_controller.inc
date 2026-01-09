@@ -13,6 +13,7 @@
 #include "account.inc"
 #include "bank_config.inc"
 #include "team_bonus.inc"
+#include "json/helpers/metastringmap"
 
 // TODO: isolate via longer name
 enum BANK_TRANSACTION {
@@ -32,26 +33,51 @@ enum BANK_TRANSACTION {
 	It handles client connection, account management, map resets, and supports
  	reconnecting clients. For performance, it caches SteamID lookups
 */
-methodmap AccountController < StringMap  {
-	// Unassuming constructor
-    //public AccountController(float starting, float multiplier, float limit) {
-	public AccountController() {
-		PrintToServer("[RTU][Bank] (New)");
-		// config = new BankConfig(
-		// 	starting,
-		// 	multiplier,
-		// 	limit
-		// );
-		// config.Print();
-		StringMap accounts = new StringMap();
-		return view_as<AccountController>(accounts);
-    }
 
-	// property BankConfig config {
-	// 	public get() {
-	// 		return config;
-	// 	}
-	// }
+methodmap AccountController < MetaStringMap {
+	public AccountController(float starting, float multiplier, float limit) {
+		AccountController self = view_as<AccountController>(new MetaStringMap());
+
+		self.Keys = new ArrayList(MAX_AUTHID_LENGTH, MaxClients + 1);
+		self.Bonuses = new ArrayList(sizeof(TeamBonus));
+
+		self.Starting = starting;
+		self.Multiplier = multiplier;
+		self.Limit = limit;
+
+		return self;
+	}
+
+	property bool Authable {
+		public get() { bool out; this.Meta.GetValue("authable", out); return out; }
+		public set(bool val) { this.Meta.SetValue("authable", val); }
+	}
+
+	property float Multiplier {
+		public get() { float out; this.Meta.GetValue("multiplier", out); return out; }
+		public set(float val) { this.Meta.SetValue("multiplier", val); }
+	}
+
+	property float Limit {
+		public get() { float out; this.Meta.GetValue("limit", out); return out; }
+		public set(float val) { this.Meta.SetValue("limit", val); }
+	}
+
+	property float Starting {
+		public get() { float out; this.Meta.GetValue("starting", out); return out; }
+		public set(float val) { this.Meta.SetValue("starting", val); }
+	}
+
+	property ArrayList Keys {
+		public get() { return view_as<ArrayList>(this.Meta.GetHandle("keys")); }
+		public set(ArrayList val) { this.Meta.SetValue("keys", val); }
+	}
+
+	property ArrayList Bonuses {
+		public get() { return view_as<ArrayList>(this.Meta.GetHandle("bonuses")); }
+		public set(ArrayList val) { this.Meta.SetValue("bonuses", val); }
+
+	}
 
 	// Establish account key and track auth server status
 	// Account link/creation happens JIT during OnPlayerSpawn
@@ -82,14 +108,13 @@ methodmap AccountController < StringMap  {
 		// buffer
 		Account account;
 
-		// initialize ID information (starting currency set on activation)
+		// Establish account
 		account.Init(client, accountKey);
 
-		// save changes
-		this.SetArray(accountKey, account, sizeof(Account));
+		// Save
+		this.Data.SetArray(accountKey, account, sizeof(Account));
 	}
 
-	// Accounts track the identity, team, and class of the client
 	public bool UpdateAccount(int client, TFClassType classType, TFTeam team) {
 		// buffer
 		Account account;
@@ -102,10 +127,10 @@ methodmap AccountController < StringMap  {
 		account.currentTeam = team;
 
 		// grant one-time starting currency
-		if (account.earned < 0.001) account.earned = this.config.StartingCurrency(account.currentTeam);
+		if (account.earned < 0.001) account.earned = this.StartingCurrency(account.currentTeam);
 
 		// save changes
-		this.SetArray(account.accountKey, account, sizeof(Account));
+		this.Data.SetArray(account.accountKey, account, sizeof(Account));
 
 		// inform caller if revert is needed
 		return account.NeedsRevert();
@@ -119,7 +144,7 @@ methodmap AccountController < StringMap  {
 	// Client Name is used while auth servers are down - once restored, convert to SteamID
 	public void SetAuthServersReachable(bool reachable) {
 		// When auth servers come back online
-		if (!this.config.Authable && reachable) {
+		if (!this.Authable && reachable) {
 			char accountKey[MAX_AUTHID_LENGTH];
 
 			// convert client names to client steamIDs
@@ -130,11 +155,11 @@ methodmap AccountController < StringMap  {
 
 				if (!authorized) continue;
 
-				this.config.Keys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
+				this.Keys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
 			}
 		}
 
-		this.config.Authable = reachable;
+		this.Authable = reachable;
 	}
 
 	// Maintain an ArrayList of client -> SteamID to limit external resource traffic
@@ -153,7 +178,7 @@ methodmap AccountController < StringMap  {
 		if (!authorized) GetClientName(client, accountKey, sizeof(accountKey));
 
 		// Update mapping
-		this.config.Keys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
+		this.Keys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
 
 		// Advise caller if external resource was reachable
 		return authorized;
@@ -172,12 +197,12 @@ methodmap AccountController < StringMap  {
 		if (keyName[0] == '\0') GetClientName(client, keyName, sizeof(keyName));
 
 		// Attempt to write account to param buffer and inform caller of success
-		return this.GetArray(keyName, a, sizeof(Account));
+		return this.Data.GetArray(keyName, a, sizeof(Account));
 	}
 
 	// Write string value to buffer param. Return false if empty
 	public bool GetAccountKey(int client, char accountKey[MAX_AUTHID_LENGTH]) {
-	 	return this.config.Keys.GetString(client, accountKey, MAX_AUTHID_LENGTH) > 0;
+	 	return this.Keys.GetString(client, accountKey, MAX_AUTHID_LENGTH) > 0;
 	}
 
 	public bool AccountExists(int client) {
@@ -197,7 +222,7 @@ methodmap AccountController < StringMap  {
 		if (!connected) a.Reset(a.Earned());
 
 		// Save Changes
-		this.SetArray(a.accountKey, a, sizeof(Account));
+		this.Data.SetArray(a.accountKey, a, sizeof(Account));
 	}
 
 	// Update or create account
@@ -224,7 +249,7 @@ methodmap AccountController < StringMap  {
 		Account a; this.Fetch(client, a);
 
 		// Adjust all gains by global multiplier
-		amount *= this.config.Multiplier;
+		amount *= this.Multiplier;
 
 		// Apply amount to the correct field
 		switch (transaction) {
@@ -243,7 +268,7 @@ methodmap AccountController < StringMap  {
 		a.earned = this.LimitCurrency(a.earned);
 
 		// Save changes before syncing
-		this.SetArray(a.accountKey, a, sizeof(Account));
+		this.Data.SetArray(a.accountKey, a, sizeof(Account));
 
 		// Match the client's currency to account balance
 		this.Sync(client);
@@ -278,16 +303,14 @@ methodmap AccountController < StringMap  {
 		Account a;
 		this.Fetch(client, a);
 		a.Revert();
-		this.SetArray(a.accountKey, a, sizeof(Account));
+		this.Data.SetArray(a.accountKey, a, sizeof(Account));
 		this.Sync(client);
 	}
 
 	// Deposit money to all accounts whether connected or not. Optional team filter
 	public void DepositAll(float amount, TFTeam team=TFTeam_Unassigned) {
 		// Increase bonus starting currency for late joiners
-		TeamBonus bonus;
-		bonus.Set(amount, team);
-		this.config.Add(bonus);
+		this.AddBonus(amount, team);
 
 		// Iteration vars
 		Account a;
@@ -302,7 +325,7 @@ methodmap AccountController < StringMap  {
 			keys.GetKey(i, accountKey, MAX_AUTHID_LENGTH);
 
 			// Fetch account
-			this.GetArray(accountKey, a, sizeof(Account));
+			this.Data.GetArray(accountKey, a, sizeof(Account));
 
 			// Optional team filter
 			if (!this.ValidTeam(a.client, team)) continue;
@@ -310,6 +333,12 @@ methodmap AccountController < StringMap  {
 			// Get paid
 			this.Deposit(amount, a.client);
 		}
+	}
+
+	public void AddBonus(float amount, TFTeam team) {
+		TeamBonus bonus;
+		bonus.Set(amount, team);
+		this.Bonuses.PushArray(bonus);
 	}
 
 	// Used by an admin command - supports "all", "red", "blu", or a specific player
@@ -331,9 +360,9 @@ methodmap AccountController < StringMap  {
 	// Limit maximum earnable currency (disabled by default)
 	public float LimitCurrency(float amount) {
 		// if no limit or under limit, amount is valid
-		if (this.config.Limit < 0 || amount < this.config.Limit) return amount;
+		if (this.Limit < 0 || amount < this.Limit) return amount;
 
-		return this.config.Limit;
+		return this.Limit;
 	}
 
 	// Get the balance for the client's current class
@@ -382,14 +411,17 @@ methodmap AccountController < StringMap  {
 
 	// Call from `OnMapEnd`
 	public void Wipe() {
+		// wipe accounts
 		this.Clear();
-		this.config.Reset();
+
+		// wipe acquisitions
+		this.Bonuses.Clear();
+		this.Keys.Clear();
 	}
 
 	// Reset all accounts in the bank. Syncs connected clients only
 	public void ResetAccounts() {
-		// Revert starting currency bonuses earned from objectives
-		this.config.Bonuses.Clear();
+		this.Bonuses.Clear();
 
 		// Iteration vars
 		StringMapSnapshot keys = this.Snapshot();
@@ -402,13 +434,13 @@ methodmap AccountController < StringMap  {
 			keys.GetKey(i, accountKey, MAX_AUTHID_LENGTH);
 
 			// Fetch account
-			this.GetArray(accountKey, account, sizeof(Account));
+			this.Data.GetArray(accountKey, account, sizeof(Account));
 
 			// Perform reset
-			account.Reset(this.config.StartingCurrency(account.currentTeam));
+			account.Reset(this.StartingCurrency(account.currentTeam));
 
 			// Save Changes
-			this.SetArray(accountKey, account, sizeof(Account));
+			this.Data.SetArray(accountKey, account, sizeof(Account));
 
 			// Sync connected clients
 			if (account.connected) this.Sync(account.client);
@@ -437,7 +469,7 @@ methodmap AccountController < StringMap  {
 		}
 
 		PrintToServer("=================================================================================");
-		PrintToServer("[RTU] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.config.StartingCurrency(TFTeam_Red), this.config.StartingCurrency(TFTeam_Blue));
+		PrintToServer("[RTU] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.StartingCurrency(TFTeam_Red), this.StartingCurrency(TFTeam_Blue));
 		PrintToServer("---------------------------------------------------------------------------------");
 		PrintToServer("Account Key           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
 		PrintToServer("---------------------------------------------------------------------------------");
@@ -451,13 +483,16 @@ methodmap AccountController < StringMap  {
 		Account a;
 		char accountKey[MAX_AUTHID_LENGTH];
 		StringMapSnapshot keys = this.Snapshot();
-
+		if (keys.Length == 0) {
+			PrintToServer("%20s", "No Data");
+			return;
+		}
 		// Iterate Accounts
 		for(int i = 0; i < keys.Length; i++) {
 			// Grab Account Key (SteamID|Name)
 			keys.GetKey(i, accountKey, sizeof(accountKey));
 
-			bool accountFound = this.GetArray(accountKey, a, sizeof(Account));
+			bool accountFound = this.Data.GetArray(accountKey, a, sizeof(Account));
 
 			PrintToServer(
 				accountFound ?
@@ -509,5 +544,31 @@ methodmap AccountController < StringMap  {
 		Account a;
 		this.Fetch(client, a);
 		return a.currentTeam;
+	}
+
+	public float StartingCurrency(TFTeam team) {
+		return this.Starting + this.Bonus(team);
+	}
+
+	public float Bonus(TFTeam team) {
+		// Ignored
+		if (team == TFTeam_Spectator) return 0.0;
+
+		// Return val
+		float result;
+
+		// Iteration Buffer
+		TeamBonus bonus;
+
+		// Iterate bonuses
+		for (int i = 0; i < this.Bonuses.Length; i++) {
+			// Write buffer
+			this.Bonuses.GetArray(i, bonus);
+
+			// Filter by team and sum
+			if (bonus.AppliesTo(team)) result += bonus.amount;
+		}
+
+		return result;
 	}
 }

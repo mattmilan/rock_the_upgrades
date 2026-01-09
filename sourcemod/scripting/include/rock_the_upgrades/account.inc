@@ -7,28 +7,17 @@
  #endinput
 #endif
 #define _account_included
+#define MAX_WEAPONS_PER_CLASS 16
 
 #pragma newdecls required
 #pragma semicolon 1
 
-// A support for Account to track spending per class
+// Helps Account to track spending at the class level
 enum struct ClassData {
-	float spent;
-	float burnt;
-
-	// Indicate whether class was played and may need a reset
-	// bool played;
-
-	// whether or not we believe this class has any upgrades to refund
-	// bool upgraded;
-
-	// Revert upgrades for current class after next spawn. Set on every reset
-	bool markedForRevert;
-
-	// TODO: track weapons upgraded per class
-	// MAGIC NUMBER 16: max # of weapons a single class could juggle?
-	// int weaponsUpgraded[16];
-
+	float spent; 		  				  // refundable
+	float burnt; 		  				  // non-refundable
+	bool markedForRevert; 				  // resetting non-active classes
+	int weapons[MAX_WEAPONS_PER_CLASS];	  // resetting non-equipped weapons
 
 	void Reset() {
 		// Nothing to reset if nothing spent
@@ -36,6 +25,10 @@ enum struct ClassData {
 
 		this.spent = 0.0;
 		this.burnt = 0.0;
+
+		// Only the active class is affected during reset events
+		// This means non-active classes will wrongly retain upgrades
+		// Setting this flag helps us address that during respawn
 		this.markedForRevert = true;
 	}
 }
@@ -54,7 +47,7 @@ enum struct Account {
 	// track earnings independent of class
 	float earned;
 
-	// track refundable and non-refundable spending per class. For interation:
+	// track refundable and non-refundable spending per class
 	TFClassType currentClass;
 	ClassData classData[10];
 
