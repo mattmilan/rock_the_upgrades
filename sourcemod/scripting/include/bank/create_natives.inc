@@ -13,7 +13,7 @@ void CreateNatives() {
     CreateNative("Bank.Bonuses.get", Native_Bank_GetBonuses); CreateNative("Bank.Bonuses.set", Native_Bank_SetBonuses);
 
     /* STATE MANAGEMENT */
-    CreateNative("Bank.SetAuthServersReachable", Native_Bank_SetAuthServersReachable);
+
     CreateNative("Bank.StartingCurrency", Native_Bank_StartingCurrency);
     CreateNative("Bank.LimitCurrency", Native_Bank_LimitCurrency);
     CreateNative("Bank.Bonus", Native_Bank_Bonus);
@@ -22,17 +22,18 @@ void CreateNatives() {
     CreateNative("Bank.ResetAccounts", Native_Bank_ResetAccounts);
 
     /* CLIENT CONNECTION */
-    CreateNative("Bank.Connect", Native_Bank_Connect);
-    CreateNative("Bank.Disconnect", Native_Bank_Disconnect);
-    CreateNative("Bank.SetConnection", Native_Bank_SetConnection);
-    CreateNative("Bank.RegisterAccountKey", Native_Bank_RegisterAccountKey);
+    // CreateNative("Bank.Connect", Native_Bank_Connect);
+    // CreateNative("Bank.Disconnect", Native_Bank_Disconnect);
+    // CreateNative("Bank.SetConnection", Native_Bank_SetConnection);
+    // CreateNative("Bank.RegisterAccountKey", Native_Bank_RegisterAccountKey);
+    // CreateNative("Bank.GetAccountKey", Native_Bank_GetAccountKey);
+    // CreateNative("Bank.SetAuthServersReachable", Native_Bank_SetAuthServersReachable);
 
     /* ACCOUNT MANAGEMENT */
-    CreateNative("Bank.FindOrCreateAccount", Native_Bank_FindOrCreateAccount);
-    CreateNative("Bank.GetAccountKey", Native_Bank_GetAccountKey);
-    CreateNative("Bank.CreateAccount", Native_Bank_CreateAccount);
-    CreateNative("Bank.UpdateAccount", Native_Bank_UpdateAccount);
-    CreateNative("Bank.Fetch", Native_Bank_Fetch);
+    // CreateNative("Bank.FindOrCreateAccount", Native_Bank_FindOrCreateAccount);
+    // CreateNative("Bank.CreateAccount", Native_Bank_CreateAccount);
+    // CreateNative("Bank.UpdateAccount", Native_Bank_UpdateAccount);
+    // CreateNative("Bank.Fetch", Native_Bank_Fetch);
 
     /* PLAYER MANAGEMENT */
     CreateNative("Bank.Balance", Native_Bank_Balance);

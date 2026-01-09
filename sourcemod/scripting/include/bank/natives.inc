@@ -9,4 +9,3 @@
 #include "natives/client_connection"
 #include "natives/account_management"
 #include "natives/transactions"
-
