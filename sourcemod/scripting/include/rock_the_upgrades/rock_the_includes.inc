@@ -20,6 +20,8 @@
 // Manages player accounts, currency balances, and spending
 #include "bank"
 
+#include "bank_printer"
+
 // Persistent, multi-target timer
 #include "combat_timer"
 
