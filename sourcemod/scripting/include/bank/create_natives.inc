@@ -47,12 +47,12 @@ void CreateNatives() {
     CreateNative("Bank.Revert", Native_Bank_Revert);
 
     /* TRANSACTIONS */
-    CreateNative("Bank.Transaction", Native_Bank_Transaction);
-    CreateNative("Bank.DepositTarget", Native_Bank_DepositTarget);
-    CreateNative("Bank.DepositAll", Native_Bank_DepositAll);
-    CreateNative("Bank.Deposit", Native_Bank_Deposit);
-    CreateNative("Bank.Withdraw", Native_Bank_Withdraw);
-    CreateNative("Bank.Burn", Native_Bank_Burn);
-    CreateNative("Bank.Refund", Native_Bank_Refund);
-    CreateNative("Bank.Forgive", Native_Bank_Forgive);
+    // CreateNative("Bank.Transaction", Native_Bank_Transaction);
+    // CreateNative("Bank.DepositTarget", Native_Bank_DepositTarget);
+    // CreateNative("Bank.DepositAll", Native_Bank_DepositAll);
+    // CreateNative("Bank.Deposit", Native_Bank_Deposit);
+    // CreateNative("Bank.Withdraw", Native_Bank_Withdraw);
+    // CreateNative("Bank.Burn", Native_Bank_Burn);
+    // CreateNative("Bank.Refund", Native_Bank_Refund);
+    // CreateNative("Bank.Forgive", Native_Bank_Forgive);
 }

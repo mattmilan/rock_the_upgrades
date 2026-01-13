@@ -3,6 +3,8 @@
 #endif
 #define _player_management_natives_included
 
+#include "../../rock_the_upgrades/shared"
+
 public any Native_Bank_Balance(Handle plugin, int numParams) {
     Bank b = view_as<Bank>(GetNativeCell(1));
     int client = view_as<int>(GetNativeCell(2));

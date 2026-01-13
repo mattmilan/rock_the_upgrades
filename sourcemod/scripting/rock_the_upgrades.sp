@@ -152,7 +152,7 @@ void InitDependencies() {
 	// combatTimer will set locks for the duration of CombatTimeout
 	combatTimer.Init(g_Cvar_CombatTimeout.IntValue);
 	// pocket will set locks according to the values in combatTimer
-	pocket.Init(combatTimer);
+	pocketMenu.Init(combatTimer);
 }
 
 public void OnPluginEnd() {

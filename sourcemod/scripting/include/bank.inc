@@ -17,15 +17,16 @@
 #include "json/helpers/metastringmap"
 #include "bank/accounts"
 #include "bank/connections"
+#include "bank/transactions"
 
 // TODO: isolate via longer name
-enum BANK_TRANSACTION {
-	BANK_BANK_BALANCE,
-	BANK_DEPOSIT,
-	BANK_WITHDRAW,
-	BANK_BURN,
-	BANK_TRANSACTION_COUNT
-}
+// enum BANK_TRANSACTION {
+// 	BANK_BANK_BALANCE,
+// 	BANK_DEPOSIT,
+// 	BANK_WITHDRAW,
+// 	BANK_BURN,
+// 	BANK_TRANSACTION_COUNT
+// }
 
 /*
 	An Bank is a glorified MetaStringMap that maps SteamIDs (as
@@ -171,7 +172,7 @@ methodmap Bank < MetaStringMap {
 
 	// Centralizes logic which had been duplicated among transaction-related methods (Deposit, Withdrawal, etc)
 	// NOTE: Attempted and failed to execute callback functions defined within this methodmap
-	public native void Transaction(float amount, int client, BANK_TRANSACTION transaction);
+	public native void Transaction(float amount, int client, BTType transaction);
 	// Used by an admin command - supports "all", "red", "blu", or a specific player
 	public native void DepositTarget(char target[MAX_NAME_LENGTH], float amount, int replyTo=0);
 	// Deposit money to all accounts whether connected or not. Optional team filter

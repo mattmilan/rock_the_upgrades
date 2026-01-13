@@ -28,7 +28,6 @@ ConVar g_Cvar_CurrencyStarting;   // Currency for new accounts before bonuses
 ConVar g_Cvar_CurrencyMultiplier; // Global multiplier for all currency gains
 ConVar g_Cvar_CurrencyLimit;      // Optionally limit earnable currency
 
-// public void  (Handle plugin, int numParams) {
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
 	RegPluginLibrary("bank");
 
@@ -60,6 +59,7 @@ void InitBank() {
     );
 }
 
+// TODO: Naming. TheBank? CentralBank? GetBank? Shame we cant use Bank. Maybe if we rename this to `AccountManager`.
 public any Native_TheBank(Handle plugin, int numParams) {
     return bank;
 }
