@@ -2,11 +2,16 @@
  * Rock The Upgrades: Combat Timer
  * TODO: description
  */
+
+#define DEFAULT_COMBAT_TIMEOUT 3
+
 enum COMBAT_TIMER_STATUS {
         COMBAT_TIMER_UNSET=0,
+        COMBAT_TIMER_READY,
         COMBAT_TIMER_STOPPED,
         COMBAT_TIMER_RUNNING,
 }
+
 enum struct CombatTimer {
 
     // Persistent timer, ticks down all combat times
@@ -15,9 +20,16 @@ enum struct CombatTimer {
     // Tracks remaining combat time per client
     StringMap Times;
 
+    // Length of timeout in seconds. Set during `Init`
+    int Timeout;
+
     COMBAT_TIMER_STATUS status;
 
-    void Init() { this.Times = new StringMap(); }
+    void Init(int timeOut) {
+        this.Times = new StringMap();
+        this.Timeout = timeOut;
+        this.status = COMBAT_TIMER_READY;
+    }
 
     // Clear times mid-map when advancing rounds
     void Reset() { this.Times.Clear();}
@@ -27,6 +39,11 @@ enum struct CombatTimer {
         if (this.status == COMBAT_TIMER_RUNNING) {
             PrintToServer("[RTU][CombatTimer] (Start) Combat timer already running.");
             return;
+        }
+
+        if (this.status != COMBAT_TIMER_READY) {
+            PrintToServer("[RTU][CombatTimer] (Start) Combat timer not initialized - initializing with default timeout of 3 seoncds.");
+            this.Init(DEFAULT_COMBAT_TIMEOUT);
         }
 
         this.status = COMBAT_TIMER_RUNNING;
@@ -99,9 +116,13 @@ enum struct CombatTimer {
         return false;
     }
 
-    // Set, reset, or decrement a combat timer
-    // MAGIC NUMBER 5: arbitrary lock time (TODO: convar)
-    bool Set(char key[MAX_AUTHID_LENGTH], int time=5) {
+    // Starts a new combat timer for the given client. Duration derived from Convar
+    bool Add(char key[MAX_AUTHID_LENGTH]) {
+        return this.Set(key, this.Timeout);
+    }
+
+    // Sets the given client's combat timer, removing at 0
+    bool Set(char key[MAX_AUTHID_LENGTH], int time) {
         bool remove = time <= 0;
 
         return remove ?
