@@ -37,7 +37,7 @@ methodmap Accounts __nullable__ {
         // Find
         Account account; Accounts.Find(b, client, account);
         // Update
-        account.Update(classType, team, b.StartingCurrency(team), connected);
+        account.Update(classType, team, connected);
         // Save
         Accounts.Save(b, account);
 

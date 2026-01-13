@@ -61,13 +61,12 @@ enum struct Account {
 		this.connected = true;
 	}
 
-	void Update(TFClassType classType, TFTeam team, float startingCurrency, int connected=-1) {
+	void Update(TFClassType classType, TFTeam team, int connected=-1) {
 		this.currentClass = classType;
 		this.currentTeam = team;
 
 		// Initialize earned currency if uninitialized
-		// TODO: smells like an initializer, not an updater
-		if (this.earned < 0.001) this.earned = startingCurrency;
+		// TODO: grant team-based starting currency
 
 		if (connected != -1) this.connected = connected > 0 ? true : false;
 	}

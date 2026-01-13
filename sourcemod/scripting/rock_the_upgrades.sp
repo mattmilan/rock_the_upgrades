@@ -84,9 +84,8 @@
 #include <tf2>
 
 #include <rock_the_upgrades/rock_the_includes>
-#include <bank>
-#include <bank/printer>
-
+// #include <bank>
+// #include <bank/printer>
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -104,7 +103,9 @@ public Plugin myinfo = {
 /*===( t.3 Variables )========================================================*/
 
 ConVar g_Cvar_CombatTimeout;    // TODO: move to combat_timer.inc?
+
 UpgradesController upgrades;    // Manages upgrades state, setup, and cleanup
+ PaymentController payment;
     PocketUpgrades pocketMenu;	// Allows chat command to open upgrades menu
        CombatTimer combatTimer;	// A persistent timer to fade client combat status
            VoteMap votes;		// Tracks votes and player counts. Can auto-pass
@@ -119,11 +120,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     return APLRes_Success;
 }
 
-native Bank TheBank();
-native PaymentController Payment();
-
 public void OnPluginStart() {
-	bank = TheBank();
 	InitPlugin();
 	InitDependencies();
 	if (!RTULateLoad) return;
@@ -138,6 +135,7 @@ public void OnPluginStart() {
 
 void InitPlugin() {
 	HookEvents();
+	InitConvars();
 	RegisterCommands();
 	LoadTranslations("common.phrases");
 	LoadTranslations("rock_the_upgrades.phrases");
@@ -146,6 +144,9 @@ void InitPlugin() {
 
 void InitDependencies() {
 	SendUpgradesFileToClients();
+	HookPaymentEvents();
+	InitPaymentConVars();
+	bank = Bank.Init();
 	votes = new VoteMap();
 	upgrades = new UpgradesController();
 	upgrades.OnPluginStarted();
@@ -153,10 +154,11 @@ void InitDependencies() {
 	combatTimer.Init(g_Cvar_CombatTimeout.IntValue);
 	// pocket will set locks according to the values in combatTimer
 	pocketMenu.Init(combatTimer);
+	payment.Init(bank);
 }
 
 public void OnPluginEnd() {
-	Payment().Close();
+	// delete payment;
 	votes.Close();
 	upgrades.OnPluginEnded();
 	combatTimer.Stop();
@@ -166,7 +168,7 @@ public void OnPluginEnd() {
 public void OnMapStart() {
 	ApplyCustomUpgradesFile();
 
-	Payment().Reset();
+	payment.Reset();
 	votes.Reset();
 	upgrades.OnMapStarted();
 	combatTimer.Start();
@@ -189,14 +191,14 @@ public void OnClientConnected(int client) {
 public void OnClientAuthorized(int client, const char[] authString) {
 	if (IsFakeClient(client)) return;
 
-	Connections.Connect(bank, client);
+	bank.Connect(client);
 }
 
 // NOTE: We count votes because the vote might pass if a player disconnects without voting
 public void OnClientDisconnect(int client) {
 	if (IsFakeClient(client)) return;
 
-	Connections.Disconnect(bank, client);
+	bank.Disconnect(client);
 	votes.Drop(client);
 	if (!votes.Count()) return;
 
@@ -226,9 +228,6 @@ public void TF2_OnWaitingForPlayersEnd() {
  */
 
 void InitConvars() {
-	g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
-	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
-	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "0.8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
 	g_Cvar_CombatTimeout = CreateConVar("rtu_combat_timeout", "3.0", "Duration in seconds after taking or dealing damage that a player is considered 'in combat' and cannot open the upgrade menu. [3.0, 0..]", 0, true, 0.0, false);
 }
 
@@ -270,7 +269,7 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 		int client = clients[i];
 		if (!ValidClient(client)) continue;
 
-		Connections.AccountKey(bank, client, accountKey);
+		bank.GetAccountKey(client, accountKey);
 		combatTimer.Add(accountKey);
 		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
@@ -340,6 +339,90 @@ Action Event_UpgradesFileChanged(Event event, const char[] name, bool dontBroadc
 	return Plugin_Continue;
 }
 
+/* PAYMENT EVENTS */
+Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
+	int killer = GetClientOfUserId(event.GetInt("attacker"));
+	int assister = GetClientOfUserId(event.GetInt("assister"));
+	int victim = GetClientOfUserId(event.GetInt("userid"));
+
+	// Opening the upgrades menu via chat leaves this prop with a value of 1
+	// We need to reset it or the menu will immediately open on player spawn
+	SetEntProp(victim, Prop_Send, "m_bInUpgradeZone", 0);
+
+	if (payment.Suicide(killer, victim)) { return Plugin_Continue; }
+
+	bool revenge = payment.RevengeKill(killer, victim)
+				|| payment.RevengeKill(assister, victim);
+
+	float reward = payment.ForKill(revenge);
+
+	if (ValidClient(killer))   bank.Deposit(reward, killer);
+	if (ValidClient(assister)) bank.Deposit(reward, assister);
+	if (ValidClient(victim))   bank.Burn(payment.DeathPenalty(victim), victim);
+
+	return Plugin_Continue;
+}
+
+// Destroying an engineer building rewards increasing currency per building upgrade
+Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast) {
+	// Ignore sappers completely
+	if (event.GetInt("objecttype") == view_as<int>(TFObject_Sapper)) return Plugin_Continue;
+
+	// Play SFX when destroying an unfinished building
+	// if (event.GetBool("was_building")) { ObjectDenied(event); }
+
+	int attacker = GetClientOfUserId(event.GetInt("attacker"));
+	int assister = GetClientOfUserId(event.GetInt("assister"));
+	float reward = payment.ForDestruction(event);
+
+	if (ValidClient(attacker)) bank.Deposit(reward, attacker);
+	if (ValidClient(assister)) bank.Deposit(reward, assister);
+
+	return Plugin_Continue;
+}
+
+// Capturing a point earns team currency
+Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
+	bank.DepositAll(
+		g_Cvar_CurrencyOnCapturePoint.FloatValue,
+		.team=view_as<TFTeam>(event.GetInt("team"))
+	);
+
+	return Plugin_Continue;
+}
+
+// Capturing a flag earns team currency
+Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcast) {
+	// MAGIC NUMBER: 2 is "captured"
+	if (event.GetInt("eventtype") != 2) { return Plugin_Continue; }
+
+	// event.GetInt("team") won't work as some maps have inverted flag logic
+	int player = event.GetInt("player");
+
+	bank.DepositAll(
+		g_Cvar_CurrencyOnCaptureFlag.FloatValue,
+		.team=view_as<TFTeam>(GetClientTeam(player))
+	);
+
+	return Plugin_Continue;
+}
+
+// Dominations earn bonus currency (disabled by default) and provide data for revenge kills
+Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
+	// Handle domination
+    int dominator = GetClientOfUserId(event.GetInt("dominator"));
+	int dominated = GetClientOfUserId(event.GetInt("dominated"));
+	if (ValidClient(dominator)) bank.Deposit(g_Cvar_CurrencyOnDomination.FloatValue, dominator);
+
+	// Track revenge
+	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
+	char dominatedName[MAX_NAME_LENGTH]; GetClientName(dominated, dominatedName, sizeof(dominatedName));
+	payment.Track(dominatedName, dominatorName);
+
+	return Plugin_Continue;
+}
+
+/* END PAYMENT EVENTS */
 
 /**
  * t.7 Commands
@@ -358,7 +441,7 @@ Action Command_RTU(int client, int args) {
 	}
 	else {
 		char accountKey[MAX_AUTHID_LENGTH];
-		Connections.AccountKey(bank, client, accountKey);
+		bank.GetAccountKey(client, accountKey);
 		pocketMenu.Show(client, accountKey);
 	}
 
@@ -368,14 +451,14 @@ Action Command_RTU(int client, int args) {
 // Player Command - show account data for all of client's classes
 Action Command_RTUAccount(int client, int args) {
 	if (client == 0) PrintToServer("[RTU] %t", "Command `rtu_account` can only be used by clients.");
-	else BankPrinter.PrintAccount(bank, client);
+	else bank.PrintAccount(client);
 
 	return Plugin_Handled;
 }
 
 // Admin Command - show account data for all clients' current class
 Action Command_RTUBanks(int client, int args) {
-	BankPrinter.PrintToServer(bank);
+	bank.PrintToServer();
 
 	return Plugin_Handled;
 }
@@ -438,9 +521,11 @@ Action Command_RTUPay(int client, int args) {
 	char target[MAX_NAME_LENGTH]; GetCmdArg(2, target, MAX_NAME_LENGTH);
 
 	// Resolve to target
-	if (target[0]) bank.DepositTarget(target, amount, .replyTo=client);
+	if (target[0]) bank.DepositTarget(amount, target, .replyTo=client);
+
 	// Resolve to client
 	else if (client > 0) bank.Deposit(amount, client);
+
 	// Tell server that a target is required
 	else ReplyToCommand(client, "[RTU] Command `rtu_pay` cannot be called from server without specifying a target");
 

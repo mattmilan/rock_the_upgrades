@@ -11,6 +11,7 @@
 // Shared functions
 #include "shared"
 
+#include "bank"
 // Enable/Disable upgrade system, and easily reset entity upgrades
 #include "upgrades_controller"
 
