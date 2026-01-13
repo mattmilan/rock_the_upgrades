@@ -45,6 +45,9 @@ enum struct Account {
     // Track connection status for debugging
     bool connected;
 
+	// Has starting currency been applied?
+	bool activated;
+
 	// track earnings independent of class
 	float earned;
 
@@ -61,14 +64,11 @@ enum struct Account {
 		this.connected = true;
 	}
 
-	void Update(TFClassType classType, TFTeam team, int connected=-1) {
-		this.currentClass = classType;
-		this.currentTeam = team;
+	void Activate(float startingCurrency) {
+		if (this.activated) return;
 
-		// Initialize earned currency if uninitialized
-		// TODO: grant team-based starting currency
-
-		if (connected != -1) this.connected = connected > 0 ? true : false;
+		this.earned = startingCurrency;
+		this.activated = true;
 	}
 
 	float Earned() {

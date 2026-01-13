@@ -18,8 +18,6 @@
 // Manages configurable currency gains and losses across various events
 #include "payment_controller"
 
-
-
 // Persistent, multi-target timer
 #include "combat_timer"
 

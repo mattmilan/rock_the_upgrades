@@ -281,9 +281,8 @@ methodmap Bank < MetaStringMap {
 		account.currentClass = classType;
 		account.currentTeam = team;
 
-
-
-
+		// TODO: find a better place for this
+		if (!account.activated) account.Activate(this.StartingCurrency(team));
 
 		// Save changes
 		this.Data.SetArray(account.accountKey, account, sizeof(Account));
