@@ -23,15 +23,12 @@ enum struct PocketUpgrades {
     // MAGIC NUMBER 32: arbitrary buffer for lock message
     char lockMessage[32];
 
-    // Whether the feature is locked for a specific client
-    CombatTimer combatTimer;
-
-    void Init(CombatTimer timer) {
+    void Init() {
         if (this.initialized) return;
 
         this.initialized = true;
         this.Cvar_PocketUpgrades = CreateConVar("rtu_pocket_upgrades", "1", "Enable or disable upgrade menu access via chat commands [1, 0,1]", 0, true, 0.0, true, 1.0);
-        this.combatTimer = timer;
+
 
         this.Reset();
     }
@@ -41,7 +38,6 @@ enum struct PocketUpgrades {
     void Reset() {
         this.disabled = this.Cvar_PocketUpgrades.IntValue == 0;
         this.lockMessage = "";
-        // dont reset combatTimer here - it's done upstream
     }
 
     // Open the upgrades menu. Closing the menu is out of scope and handled in-game
@@ -90,7 +86,7 @@ enum struct PocketUpgrades {
         char buffer[32];
 
         // Check for lock and message
-        bool clientLocked = this.combatTimer.Locked(accountKey, buffer)
+        bool clientLocked = CombatTimer.Locked(accountKey, buffer);
 
         // Report message if locked
         if (clientLocked) ReplyToCommand(client, "[RTU] Pocket Menu is Locked! (%s)", buffer);

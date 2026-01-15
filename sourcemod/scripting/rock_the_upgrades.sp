@@ -84,8 +84,6 @@
 #include <tf2>
 
 #include <rock_the_upgrades/rock_the_includes>
-// #include <Bank.Instance()>
-// #include <Bank.Instance()/printer>
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -102,10 +100,8 @@ public Plugin myinfo = {
 
 /*===( t.3 Variables )========================================================*/
 
-ConVar g_Cvar_CombatTimeout;    // TODO: move to combat_timer.inc?
 UpgradesController upgrades;    // Manages upgrades state, setup, and cleanup
     PocketUpgrades pocketMenu;	// Allows chat command to open upgrades menu
-       CombatTimer combatTimer;	// A persistent timer to fade client combat status
               bool RTULateLoad; // Might be needed to get SteamIDs in lateload
 
  /*===( t.4 Forwards )========================================================*/
@@ -144,19 +140,17 @@ void InitDependencies() {
 
 	upgrades = new UpgradesController();
 	upgrades.OnPluginStarted();
-	// revengeTracker = RevengeTracker.Instance();
-	// combatTimer will set locks for the duration of CombatTimeout
-	combatTimer.Init(g_Cvar_CombatTimeout.IntValue);
+
 	// pocket will set locks according to the values in combatTimer
-	pocketMenu.Init(combatTimer);
-	// payment.Init(Bank.Instance());
+	pocketMenu.Init();
+
 }
 
 public void OnPluginEnd() {
 	// delete payment;
 	Votes.Instance().Close();
 	upgrades.OnPluginEnded();
-	combatTimer.Stop();
+	CombatTimer.Stop();
 	Bank.Instance().Close();
 }
 
@@ -166,12 +160,12 @@ public void OnMapStart() {
 	// payment.Reset();
 	Votes.Instance().Reset();
 	upgrades.OnMapStarted();
-	combatTimer.Start();
+	CombatTimer.Start();
 }
 
 public void OnMapEnd() {
 	pocketMenu.Reset();
-	combatTimer.Stop();
+	CombatTimer.Stop();
 	Bank.Instance().Wipe();
 }
 
@@ -195,6 +189,11 @@ public void OnClientDisconnect(int client) {
 
 	Bank.Instance().Disconnect(client);
 	Votes.Instance().Drop(client);
+
+	char accountKey[MAX_AUTHID_LENGTH];
+	AuthKeys.Get(client, accountKey);
+	CombatTimer.Drop(accountKey);
+
 	if (!Votes.Instance().Count()) return;
 
 	Bank.Instance().Sync();
@@ -223,7 +222,7 @@ public void TF2_OnWaitingForPlayersEnd() {
  */
 
 void InitConvars() {
-	g_Cvar_CombatTimeout = CreateConVar("rtu_combat_timeout", "3.0", "Duration in seconds after taking or dealing damage that a player is considered 'in combat' and cannot open the upgrade menu. [3.0, 0..]", 0, true, 0.0, false);
+
 }
 
 void HookEvents() {
@@ -265,7 +264,7 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 		if (!ValidClient(client)) continue;
 
 		AuthKeys.Get(client, accountKey);
-		combatTimer.Add(accountKey);
+		CombatTimer.Add(accountKey);
 		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
 
