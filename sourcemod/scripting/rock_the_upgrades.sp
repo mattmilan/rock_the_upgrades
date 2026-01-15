@@ -150,7 +150,7 @@ public void OnPluginEnd() {
 	// delete payment;
 	Votes.Instance().Close();
 	upgrades.OnPluginEnded();
-	CombatTimer.Stop();
+	OmniTimer.Stop();
 	Bank.Instance().Close();
 }
 
@@ -160,12 +160,12 @@ public void OnMapStart() {
 	// payment.Reset();
 	Votes.Instance().Reset();
 	upgrades.OnMapStarted();
-	CombatTimer.Start();
+	OmniTimer.Start();
 }
 
 public void OnMapEnd() {
 	pocketMenu.Reset();
-	CombatTimer.Stop();
+	OmniTimer.Stop();
 	Bank.Instance().Wipe();
 }
 
@@ -192,7 +192,7 @@ public void OnClientDisconnect(int client) {
 
 	char accountKey[MAX_AUTHID_LENGTH];
 	AuthKeys.Get(client, accountKey);
-	CombatTimer.Drop(accountKey);
+	OmniTimer.Drop(accountKey);
 
 	if (!Votes.Instance().Count()) return;
 
@@ -264,7 +264,7 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 		if (!ValidClient(client)) continue;
 
 		AuthKeys.Get(client, accountKey);
-		CombatTimer.Add(accountKey);
+		OmniTimer.Add(accountKey);
 		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
 

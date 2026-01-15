@@ -82,11 +82,11 @@ enum struct PocketUpgrades {
 
     // Disabled temporarily for specific player
     bool ClientLocked(int client, char accountKey[MAX_AUTHID_LENGTH]) {
-        // CombatTimer message buffer
+        // OmniTimer message buffer
         char buffer[32];
 
         // Check for lock and message
-        bool clientLocked = CombatTimer.Locked(accountKey, buffer);
+        bool clientLocked = OmniTimer.Locked(accountKey, buffer);
 
         // Report message if locked
         if (clientLocked) ReplyToCommand(client, "[RTU] Pocket Menu is Locked! (%s)", buffer);

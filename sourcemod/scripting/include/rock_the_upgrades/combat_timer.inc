@@ -5,7 +5,7 @@
 
 ConVar g_Cvar_CombatTimeout;
 
-static CombatTimer g_CombatTimer;
+static OmniTimer g_OmniTimer;
 
 /**
  * Rock The Upgrades: Combat Timer (TODO: rename omni_timer)
@@ -19,7 +19,7 @@ static CombatTimer g_CombatTimer;
  *
  * Usage:
  *
- * CombatTimer is designed as a Singleton:
+ * OmniTimer is designed as a Singleton:
  *  - Static methods are considered "public"
  *  - Public methods are considered "private"
  *  - Don't instantiate - call statics
@@ -29,7 +29,7 @@ static CombatTimer g_CombatTimer;
  * Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
  *     int client = GetClientOfUserId(event.GetInt("userid"));
  *     char timerKey[3]; IntToString(client, timerKey, sizeof(timerKey));
- *     CombatTimer.Add(timerKey);
+ *     OmniTimer.Add(timerKey);
  *     return Plugin_Continue;
  * }
  *
@@ -37,46 +37,46 @@ static CombatTimer g_CombatTimer;
  *
  * bool TurnInvisible(int client) {
  *     char timerKey[3]; IntToString(client, timerKey, sizeof(timerKey));
- *     if (CombatTimer.Get(timerKey, _)) return false
+ *     if (OmniTimer.Get(timerKey, _)) return false
  *     else ...
  * }
  */
 
-methodmap CombatTimer < TypedStringMap {
-    public static CombatTimer Instance() {
-        if (g_CombatTimer == null) CombatTimer.Init();
+methodmap OmniTimer < TypedStringMap {
+    public static OmniTimer Instance() {
+        if (g_OmniTimer == null) OmniTimer.Init();
 
-        return g_CombatTimer;
+        return g_OmniTimer;
     }
 
     public static void Init() {
         g_Cvar_CombatTimeout = CreateConVar("rtu_combat_timeout", "3.0", "Duration in seconds after taking or dealing damage that a player is considered 'in combat' and cannot open the upgrade menu. [3.0, 0..]", 0, true, 0.0, false);
-        g_CombatTimer = view_as<CombatTimer>(new StringMap());
-        CombatTimer.Start();
+        g_OmniTimer = view_as<OmniTimer>(new StringMap());
+        OmniTimer.Start();
     }
 
     // Start timer when map starts
     public static void Start() {
-        if (CombatTimer.Instance().Ticker != INVALID_HANDLE) return;
+        if (OmniTimer.Instance().Ticker != INVALID_HANDLE) return;
 
-        CombatTimer.Instance().Ticker = CreateTimer(1.0, Timer_CombatTimerTicker, CombatTimer.Instance(), TIMER_REPEAT);
+        OmniTimer.Instance().Ticker = CreateTimer(1.0, Timer_OmniTimerTicker, OmniTimer.Instance(), TIMER_REPEAT);
     }
 
     // Stop timer when map ends
     public static void Stop() {
-        if (CombatTimer.Instance().Ticker == INVALID_HANDLE) return;
+        if (OmniTimer.Instance().Ticker == INVALID_HANDLE) return;
 
         // clear remaining times
-        CombatTimer.Instance().Clear();
+        OmniTimer.Instance().Clear();
         // close ticker
-        CloseHandle(CombatTimer.Instance().Ticker);
-        CombatTimer.Instance().Ticker = INVALID_HANDLE;
+        CloseHandle(OmniTimer.Instance().Ticker);
+        OmniTimer.Instance().Ticker = INVALID_HANDLE;
     }
 
     // Check lock status for a given client. Provide remaining lock time in buffer
     public static bool Locked(char key[MAX_AUTHID_LENGTH], char buffer[32]="") {
         int time;
-        bool locked = CombatTimer.Instance().GetValue(key, time);
+        bool locked = OmniTimer.Instance().GetValue(key, time);
         if (locked) Format(buffer, sizeof(buffer), "%d seconds remaining", time);
 
         return locked;
@@ -84,18 +84,18 @@ methodmap CombatTimer < TypedStringMap {
 
    // Starts/Restarts a combat timer for the given client
     public static bool Add(char key[MAX_AUTHID_LENGTH]) {
-        return CombatTimer.Instance().SetValue(key, CombatTimer.Instance().Timeout);
+        return OmniTimer.Instance().SetValue(key, OmniTimer.Instance().Timeout);
     }
 
     // Delegate
     public static bool Get(char key[MAX_AUTHID_LENGTH], int &buffer=0) {
-        if (CombatTimer.Instance().GetValue(key, buffer)) return true;
+        if (OmniTimer.Instance().GetValue(key, buffer)) return true;
 
         return false;
     }
 
     public static bool Drop(char key[MAX_AUTHID_LENGTH]) {
-        return CombatTimer.Instance().Remove(key);
+        return OmniTimer.Instance().Remove(key);
     }
 
     // private
@@ -146,7 +146,7 @@ methodmap CombatTimer < TypedStringMap {
 }
 
 // Timers must be static and cannot live within methodmaps
-Action Timer_CombatTimerTicker(Handle timer, CombatTimer combatTimer) {
+Action Timer_OmniTimerTicker(Handle timer, OmniTimer combatTimer) {
     combatTimer.Tick();
 
 	return Plugin_Continue;
