@@ -232,6 +232,14 @@ void HookEvents() {
 	HookEvent("teamplay_win_panel", Event_TeamplayWinPanel, EventHookMode_Post);
 	HookEvent("post_inventory_application", Event_PostInventoryApplication, EventHookMode_Post);
 	HookEvent("upgrades_file_changed", Event_UpgradesFileChanged, EventHookMode_Post);
+
+	// Currency Gain
+	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
+	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
+	HookEvent("object_destroyed", Event_ObjectDestroyed, EventHookMode_Post);
+	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
+	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
+
 }
 
 void RegisterCommands() {
