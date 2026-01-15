@@ -103,9 +103,7 @@ public Plugin myinfo = {
 /*===( t.3 Variables )========================================================*/
 
 ConVar g_Cvar_CombatTimeout;    // TODO: move to combat_timer.inc?
-// RevengeTracker revengeTracker;  // Tracks dominations for revenge kills
 UpgradesController upgrades;    // Manages upgrades state, setup, and cleanup
-//  BankTxnController payment;
     PocketUpgrades pocketMenu;	// Allows chat command to open upgrades menu
        CombatTimer combatTimer;	// A persistent timer to fade client combat status
            VoteMap votes;		// Tracks votes and player counts. Can auto-pass
@@ -144,9 +142,7 @@ void InitPlugin() {
 
 void InitDependencies() {
 	SendUpgradesFileToClients();
-	// HookBankTxnEvents();
 	InitBankTxnConVars();
-	// revengeTracker = new RevengeTracker();
 	bank = Bank.Instance();
 	votes = new VoteMap();
 	upgrades = new UpgradesController();
@@ -345,7 +341,6 @@ Action Event_UpgradesFileChanged(Event event, const char[] name, bool dontBroadc
 
 // Killing enemies rewards the killer and the assister. Bonus currency for revenge kills
 Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
-	PrintToServer("[RTU] PlayerDeath event fired.");
 	CloseMenuOnDeath(event);
 	BankTxn txn; txn = Reward.PlayerKilled(event);
 	Bank.Transact(txn);
