@@ -29,3 +29,7 @@
 
 // Allows defining custom upgrades via external file
 #include "custom_upgrades"
+
+#include "revenge_tracker"
+
+#include "auth_keys"

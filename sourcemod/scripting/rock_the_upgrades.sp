@@ -103,9 +103,9 @@ public Plugin myinfo = {
 /*===( t.3 Variables )========================================================*/
 
 ConVar g_Cvar_CombatTimeout;    // TODO: move to combat_timer.inc?
-
+// RevengeTracker revengeTracker;  // Tracks dominations for revenge kills
 UpgradesController upgrades;    // Manages upgrades state, setup, and cleanup
- PaymentController payment;
+//  BankTxnController payment;
     PocketUpgrades pocketMenu;	// Allows chat command to open upgrades menu
        CombatTimer combatTimer;	// A persistent timer to fade client combat status
            VoteMap votes;		// Tracks votes and player counts. Can auto-pass
@@ -144,17 +144,19 @@ void InitPlugin() {
 
 void InitDependencies() {
 	SendUpgradesFileToClients();
-	HookPaymentEvents();
-	InitPaymentConVars();
-	bank = Bank.Init();
+	// HookBankTxnEvents();
+	InitBankTxnConVars();
+	// revengeTracker = new RevengeTracker();
+	bank = Bank.Instance();
 	votes = new VoteMap();
 	upgrades = new UpgradesController();
 	upgrades.OnPluginStarted();
+	// revengeTracker = RevengeTracker.Instance();
 	// combatTimer will set locks for the duration of CombatTimeout
 	combatTimer.Init(g_Cvar_CombatTimeout.IntValue);
 	// pocket will set locks according to the values in combatTimer
 	pocketMenu.Init(combatTimer);
-	payment.Init(bank);
+	// payment.Init(bank);
 }
 
 public void OnPluginEnd() {
@@ -168,7 +170,7 @@ public void OnPluginEnd() {
 public void OnMapStart() {
 	ApplyCustomUpgradesFile();
 
-	payment.Reset();
+	// payment.Reset();
 	votes.Reset();
 	upgrades.OnMapStarted();
 	combatTimer.Start();
@@ -269,7 +271,7 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 		int client = clients[i];
 		if (!ValidClient(client)) continue;
 
-		bank.GetAccountKey(client, accountKey);
+		AuthKeys.Get(client, accountKey);
 		combatTimer.Add(accountKey);
 		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
@@ -340,85 +342,41 @@ Action Event_UpgradesFileChanged(Event event, const char[] name, bool dontBroadc
 }
 
 /* PAYMENT EVENTS */
+
+// Killing enemies rewards the killer and the assister. Bonus currency for revenge kills
 Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
-	int killer = GetClientOfUserId(event.GetInt("attacker"));
-	int assister = GetClientOfUserId(event.GetInt("assister"));
-	int victim = GetClientOfUserId(event.GetInt("userid"));
-
-	// Opening the upgrades menu via chat leaves this prop with a value of 1
-	// We need to reset it or the menu will immediately open on player spawn
-	SetEntProp(victim, Prop_Send, "m_bInUpgradeZone", 0);
-
-	if (payment.Suicide(killer, victim)) { return Plugin_Continue; }
-
-	bool revenge = payment.RevengeKill(killer, victim)
-				|| payment.RevengeKill(assister, victim);
-
-	float reward = payment.ForKill(revenge);
-
-	if (ValidClient(killer))   bank.Deposit(reward, killer);
-	if (ValidClient(assister)) bank.Deposit(reward, assister);
-	if (ValidClient(victim))   bank.Burn(payment.DeathPenalty(victim), victim);
-
-	return Plugin_Continue;
-}
-
-// Destroying an engineer building rewards increasing currency per building upgrade
-Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast) {
-	// Ignore sappers completely
-	if (event.GetInt("objecttype") == view_as<int>(TFObject_Sapper)) return Plugin_Continue;
-
-	// Play SFX when destroying an unfinished building
-	// if (event.GetBool("was_building")) { ObjectDenied(event); }
-
-	int attacker = GetClientOfUserId(event.GetInt("attacker"));
-	int assister = GetClientOfUserId(event.GetInt("assister"));
-	float reward = payment.ForDestruction(event);
-
-	if (ValidClient(attacker)) bank.Deposit(reward, attacker);
-	if (ValidClient(assister)) bank.Deposit(reward, assister);
-
-	return Plugin_Continue;
-}
-
-// Capturing a point earns team currency
-Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
-	bank.DepositAll(
-		g_Cvar_CurrencyOnCapturePoint.FloatValue,
-		.team=view_as<TFTeam>(event.GetInt("team"))
-	);
-
-	return Plugin_Continue;
-}
-
-// Capturing a flag earns team currency
-Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcast) {
-	// MAGIC NUMBER: 2 is "captured"
-	if (event.GetInt("eventtype") != 2) { return Plugin_Continue; }
-
-	// event.GetInt("team") won't work as some maps have inverted flag logic
-	int player = event.GetInt("player");
-
-	bank.DepositAll(
-		g_Cvar_CurrencyOnCaptureFlag.FloatValue,
-		.team=view_as<TFTeam>(GetClientTeam(player))
-	);
-
+	PrintToServer("[RTU] PlayerDeath event fired.");
+	CloseMenuOnDeath(event);
+	BankTxn txn; txn = Reward.PlayerKilled(event);
+	Bank.Transact(txn);
 	return Plugin_Continue;
 }
 
 // Dominations earn bonus currency (disabled by default) and provide data for revenge kills
 Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
-	// Handle domination
-    int dominator = GetClientOfUserId(event.GetInt("dominator"));
-	int dominated = GetClientOfUserId(event.GetInt("dominated"));
-	if (ValidClient(dominator)) bank.Deposit(g_Cvar_CurrencyOnDomination.FloatValue, dominator);
+	BankTxn txn; txn = Reward.PlayerDominated(event);
+	Bank.Transact(txn);
+	return Plugin_Continue;
+}
 
-	// Track revenge
-	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
-	char dominatedName[MAX_NAME_LENGTH]; GetClientName(dominated, dominatedName, sizeof(dominatedName));
-	payment.Track(dominatedName, dominatorName);
+// Destroying an engineer building rewards increasing currency per building upgrade
+Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast) {
+	BankTxn txn; txn = Reward.ObjectDestroyed(event);
+	Bank.Transact(txn);
+	return Plugin_Continue;
+}
 
+// Capturing a point earns team currency
+Action Event_TeamplayPointCaptured(Event event, const char[] name, bool dontBroadcast) {
+	BankTxn txn; txn = Reward.PointCaptured(event);
+	Bank.Transact(txn);
+	return Plugin_Continue;
+}
+
+// Capturing a flag earns team currency
+Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcast) {
+	BankTxn txn; txn = Reward.FlagCaptured(event);
+	Bank.Transact(txn);
 	return Plugin_Continue;
 }
 
@@ -441,7 +399,7 @@ Action Command_RTU(int client, int args) {
 	}
 	else {
 		char accountKey[MAX_AUTHID_LENGTH];
-		bank.GetAccountKey(client, accountKey);
+		AuthKeys.Get(client, accountKey);
 		pocketMenu.Show(client, accountKey);
 	}
 
@@ -530,4 +488,13 @@ Action Command_RTUPay(int client, int args) {
 	else ReplyToCommand(client, "[RTU] Command `rtu_pay` cannot be called from server without specifying a target");
 
 	return Plugin_Handled;
+}
+
+// Opening the upgrades menu via chat leaves this prop with a value of 1
+// We need to reset it or the menu will immediately open on player spawn
+void CloseMenuOnDeath(Event event) {
+	int victim = GetClientOfUserId(event.GetInt("userid"));
+	if (!ValidClient(victim)) return;
+
+	SetEntProp(victim, Prop_Send, "m_bInUpgradeZone", 0);
 }

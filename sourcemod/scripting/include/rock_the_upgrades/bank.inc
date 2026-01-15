@@ -11,14 +11,11 @@
 #pragma newdecls required
 
 #include "account"
-
+#include "shared"
 #include "team_bonus"
 #include "json/helpers/metastringmap"
 #include "bank/printer"
-// #include "bank/accounts"
-// #include "bank/connections"
-// #include "bank/transactions"
-
+#include "auth_keys.inc"
 
 ConVar g_Cvar_CurrencyStarting;   // Currency for new accounts before bonuses
 ConVar g_Cvar_CurrencyMultiplier; // Global multiplier for all currency gains
@@ -26,13 +23,15 @@ ConVar g_Cvar_CurrencyLimit;      // Optionally limit earnable currency
 
 
 // TODO: isolate via longer name
-enum BANK_TRANSACTION {
-	BANK_BANK_BALANCE,
-	BANK_DEPOSIT,
-	BANK_WITHDRAW,
-	BANK_BURN,
-	BANK_TRANSACTION_COUNT
-}
+// enum BANK_TRANSACTION {
+// 	BANK_BANK_BALANCE,
+// 	BANK_DEPOSIT,
+// 	BANK_WITHDRAW,
+// 	BANK_BURN,
+// 	BANK_TRANSACTION_COUNT
+// }
+
+static Bank g_Bank;
 
 /*
 	An Bank is a glorified MetaStringMap that maps SteamIDs (as
@@ -42,19 +41,35 @@ enum BANK_TRANSACTION {
 
 */
 methodmap Bank < MetaStringMap {
-	public Bank(float starting, float multiplier, float limit) {
-		Bank self = view_as<Bank>(new MetaStringMap());
-		PrintToServer("[RTU][Bank] Initializing Bank with Starting: %.2f, Multiplier: %.2f, Limit: %.2f", starting, multiplier, limit);
-		// Clear on map end
-		self.Keys = new ArrayList(MAX_AUTHID_LENGTH, MaxClients + 1);
-		self.Bonuses = new ArrayList(sizeof(TeamBonus));
+	public static Bank Instance() {
+		if (g_Bank == null) Bank.Init();
 
-		// from Convars
-		self.Starting = starting;
-		self.Multiplier = multiplier;
-		self.Limit = limit;
+		return g_Bank;
+	}
 
-		return self;
+	public static void Init() {
+		if (g_Bank != null) return;
+		PrintToServer("[RTU][Bank] Initializing Bank");
+		g_Cvar_CurrencyStarting = CreateConVar("rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
+		g_Cvar_CurrencyMultiplier = CreateConVar("rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
+		g_Cvar_CurrencyLimit = CreateConVar("rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
+
+		g_Bank = view_as<Bank>(new MetaStringMap());
+		g_Bank.Bonuses = new ArrayList(sizeof(TeamBonus));
+	}
+
+	public static void Transact(BankTxn txn) {
+		PrintToServer("[RTU][Bank] Processing Bank Transaction with %d items", txn.txnItems.Length);
+		for (int i = 0; i < txn.txnItems.Length; i++) {
+			BankTxnItem txnItem; txn.txnItems.GetArray(i, txnItem, sizeof(BankTxnItem));
+			PrintToServer("[RTU][Bank] Processing transaction item %d: Amount %.2f, Type %d for %d clients", i, txnItem.amount, txnItem.txnType, txnItem.clients.Length);
+			ArrayList clients = txnItem.clients;
+			for (int j = 0; j < clients.Length; j++) {
+				PrintToServer("[RTU][Bank] Executing transaction item %d for ClientID index %d", i, j);
+				int client = clients.Get(j);
+				Bank.Instance().Execute(txnItem.amount, client, txnItem.txnType);
+			}
+		}
 	}
 
 	public void PrintAccount(int client) {
@@ -65,18 +80,6 @@ methodmap Bank < MetaStringMap {
 		BankPrinter.PrintToServer(this);
 	}
 
-	public static Bank Init() {
-		g_Cvar_CurrencyStarting = CreateConVar("rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
-		g_Cvar_CurrencyMultiplier = CreateConVar("rtu_currency_multiplier", "1.0", "Global multiplier for all currency gains when RTU is activated [1, 0..]", 0, true, 0.0, false);
-		g_Cvar_CurrencyLimit = CreateConVar("rtu_currency_limit", "-1", "Maximum amount of currency a player can earn, -1 for unlimited [unlimited, -1..]", 0, true, -1.0, false);
-
-		return new Bank(
- 			g_Cvar_CurrencyStarting.FloatValue,
-        	g_Cvar_CurrencyMultiplier.FloatValue,
-        	g_Cvar_CurrencyLimit.FloatValue
-		);
-	}
-
 	/* PROPERTIES */
 
 	property bool Authable {
@@ -85,23 +88,15 @@ methodmap Bank < MetaStringMap {
 	}
 
 	property float Multiplier {
-		public get()          	  { return this.Meta.GetFloat("multiplier"); }
-		public set(float val) 	  { this.Meta.SetFloat("multiplier", val); }
+		public get()          	  { return g_Cvar_CurrencyMultiplier.FloatValue; }
 	}
 
 	property float Limit {
-		public get()          	  { return this.Meta.GetFloat("limit"); }
-		public set(float val) 	  { this.Meta.SetFloat("limit", val); }
+		public get()          	  { return g_Cvar_CurrencyLimit.FloatValue; }
 	}
 
 	property float Starting {
-		public get()          	  { return this.Meta.GetFloat("starting"); }
-		public set(float val) 	  { this.Meta.SetFloat("starting", val); }
-	}
-
-	property ArrayList Keys {
-		public get() 			  { return view_as<ArrayList>(this.Meta.GetHandle("keys")); }
-		public set(ArrayList val) { this.Meta.SetHandle("keys", val); }
+		public get()          	  { return g_Cvar_CurrencyStarting.FloatValue; }
 	}
 
 	property ArrayList Bonuses {
@@ -115,17 +110,12 @@ methodmap Bank < MetaStringMap {
 
 	/* CLIENT CONNECTION */
 
-	public bool Connect(int client) {
+	public void Connect(int client) {
 		// Maps client -> steamID (fallback: client name)
-		bool authorized = this.RegisterAccountKey(client);
-
-		// Track steam auth server outages and recoveries
-		this.SetAuthServersReachable(authorized);
+		AuthKeys.Register(client);
 
 		// Create new accounts or reconnect existing ones
 		this.FindOrCreateAccount(client);
-
-		return authorized;
 	}
 
 	public void Disconnect(int client) {
@@ -133,7 +123,7 @@ methodmap Bank < MetaStringMap {
 	}
 
 	public void SetConnection(int client, bool connected) {
-		Account a; /*=*/ this.Fetch(client, a);
+		Account a; /*=*/ this.Fetch(a, client);
 		a.connected = connected;
 
 		// Reset spending but retain earned currency on disconnect
@@ -143,41 +133,25 @@ methodmap Bank < MetaStringMap {
 		this.Data.SetArray(a.accountKey, a, sizeof(Account));
 	}
 
-	public bool RegisterAccountKey(int client) {
-		// Buffer
-		char accountKey[MAX_AUTHID_LENGTH];
-
-		// Attempt read/write SteamID from external resource
-		bool authorized = GetClientAuthId(client, AuthId_SteamID64, accountKey, sizeof(accountKey));
-
-		// Fallback to client name (discouraged as spoofable but necessary if auth servers are down)
-		if (!authorized) GetClientName(client, accountKey, sizeof(accountKey));
-
-		// Update mapping
-		this.Keys.SetString(client, accountKey, MAX_AUTHID_LENGTH);
-
-		// Advise caller if external resource was reachable
-		return authorized;
-	}
 	/* TRANSACTIONS */
 
-	public void Transaction(float amount, int client, BANK_TRANSACTION transaction) {
+	public void Execute(float amount, int client, BankTransactionType txn) {
 		// Fetch account
-		Account a; /*=*/ this.Fetch(client, a);
+		Account a; /*=*/ this.Fetch(a, client);
 
 		// Adjust all gains by global multiplier
 		amount *= this.Multiplier;
-
+		PrintToServer("[RTU][Bank] Executing transaction for Client %d: Amount %.2f, Type %d (Post-Multiplier: %.2f)", client, amount, txn, amount);
 		// Apply amount to the correct field
-		switch (transaction) {
+		switch (txn) {
 			// Currency gained from events or chat commands
-			case BANK_DEPOSIT:
+			case Bank_Deposit:
 				a.earned += amount;
 			// Purchasing or refunding upgrades
-			case BANK_WITHDRAW:
+			case Bank_Withdraw:
 				a.classData[a.currentClass].spent += amount;
 			// Purchasing non-refundables
-			case BANK_BURN:
+			case Bank_Burn:
 				a.classData[a.currentClass].burnt += amount;
 		}
 
@@ -193,15 +167,32 @@ methodmap Bank < MetaStringMap {
 	}
 
 	public void Deposit(float amount, int client) {
-		this.Transaction(amount, client, BANK_DEPOSIT);
+		BankTxn txn; txn.Init(); txn.AddDeposit(amount, client);
+		Bank.Transact(txn);
+		// this.Execute(amount, client, Bank_Deposit);
 	}
 
 	public void Withdraw(float amount, int client) {
-		this.Transaction(amount, client, BANK_WITHDRAW);
+		BankTxn txn; txn.Init(); txn.AddWithdraw(amount, client);
+		Bank.Transact(txn);
+		// this.Execute(amount, client, Bank_Withdraw);
 	}
 
 	public void Burn(float amount, int client) {
-		this.Transaction(amount, client, BANK_BURN);
+		BankTxn txn; txn.Init(); txn.AddBurn(amount, client);
+		Bank.Transact(txn);
+		// this.Execute(amount, client, Bank_Burn);
+	}
+
+	public ArrayList AuthKeysByTeam(TFTeam team) {
+		ArrayList teamAuthKeys = new ArrayList();
+		switch (team) {
+			case TFTeam_Red:		{} // red
+			case TFTeam_Blue: 		{} // blu
+			case TFTeam_Unassigned: {} // all
+			default: 				{} // none
+		}
+		return teamAuthKeys;
 	}
 
 	public void DepositAll(float amount, TFTeam team=TFTeam_Unassigned) {
@@ -240,12 +231,13 @@ methodmap Bank < MetaStringMap {
 			else ReplyToCommand(replyTo, "[RTU] Could not find player %s", target);
 		}
 	}
+
 	/* ACCOUNT MANAGEMENT */
 
 	public void FindOrCreateAccount(int client) {
 		// Establish account key
 		char accountKey[MAX_AUTHID_LENGTH];
-		this.GetAccountKey(client, accountKey);
+		AuthKeys.Get(client, accountKey);
 
 		// Create new account or reconnect existing one
 		if (this.ContainsKey(accountKey)) this.SetConnection(client, true);
@@ -263,18 +255,10 @@ methodmap Bank < MetaStringMap {
 		this.Data.SetArray(accountKey, account, sizeof(Account));
 	}
 
-	// TODO: should this check authable to switch between id/name lookup?
-	public bool GetAccountKey(int client, char accountKey[MAX_AUTHID_LENGTH]) {
-		// Write buffer
-		bool exists = (this.Keys.GetString(client, accountKey, MAX_AUTHID_LENGTH)) > 0;
-
-		return exists;
-	}
-
 	public bool UpdateAccount(int client, TFClassType classType, TFTeam team) {
 		// Find account
 		Account account;
-		bool found = this.Fetch(client, account);
+		bool found = this.Fetch(account, client);
 		if (!found) return false;
 
 		// apply updates
@@ -289,19 +273,34 @@ methodmap Bank < MetaStringMap {
 		return true;
 	}
 
-	public bool Fetch(int client, Account a) {
-		// Get account key
-		char accountKey[MAX_AUTHID_LENGTH];
-		this.GetAccountKey(client, accountKey);
+	public bool Fetch(Account a, int client) {
+		char accountKey[MAX_AUTHID_LENGTH]
+		AuthKeys.Get(client, accountKey);
 
-		// Lookup account
-		return this.Data.GetArray(accountKey, a, sizeof(Account));
+		// Primary lookup by SteamID - should pass 99.9% of the time
+		if (this.Data.GetArray(accountKey, a, sizeof(Account))) return true;
+
+		// Fallback to PlayerName
+		char nameKey[MAX_AUTHID_LENGTH];
+		AuthKeys.Get(client, nameKey, AuthModePlayerName);
+
+		// Neither key exists - somewhat impossible
+		if (!this.Data.GetArray(nameKey, a, sizeof(Account))) return false;
+
+		// Auth servers are down - continue using PlayerName fallback
+		if (AuthKeys.Mode() == AuthModePlayerName) return true;
+
+		// Auth Servers restored - swap keys
+		this.Data.SetArray(accountKey, a, sizeof(Account));
+		this.Data.Remove(nameKey);
+
+		return true;
 	}
 
 	/* PLAYER MANAGEMENT */
 
 	public float Balance(int client) {
-		Account a; /*=*/ this.Fetch(client, a);
+		Account a; /*=*/ this.Fetch(a, client);
 		return a.Balance();
 	}
 
@@ -357,55 +356,20 @@ methodmap Bank < MetaStringMap {
 	}
 
 	public bool NeedsRevert(int client) {
-		Account a; /*=*/ this.Fetch(client, a);
+		Account a; /*=*/ this.Fetch(a, client);
 		return a.NeedsRevert();
 	}
 
 	public void Revert(int client) {
-		Account a; /*=*/ this.Fetch(client, a);
+		Account a; /*=*/ this.Fetch(a, client);
 		a.Revert();
 
 		// Save changes
 		this.Data.SetArray(a.accountKey, a, sizeof(Account));
 		this.Sync(client);
 	}
+
 	/* STATE MANAGEMENT */
-
-	public void SetAuthServersReachable(bool reachable) {
-		// Servers Reactivated
-		if (reachable && !this.Authable) this.RestoreAuth();
-
-		this.Authable = reachable;
-	}
-
-	public void RestoreAuth() {
-		// Connections.RestoreAuth(this);
-		// Iterator buffers
-        char nameKey[MAX_AUTHID_LENGTH];
-        char authKey[MAX_AUTHID_LENGTH];
-        Account account;
-
-        for (int i = 0; i < this.Keys.Length; i++) {
-            // Write name
-            this.Keys.GetString(i, nameKey, MAX_AUTHID_LENGTH);
-
-            // Skip missing (dont use fetch here)
-            if (!this.Accounts.GetArray(nameKey, account, sizeof(Account))) continue;
-
-            // Write authID
-            GetClientAuthId(i, AuthId_SteamID64, authKey, MAX_AUTHID_LENGTH);
-
-            // Update key map
-            this.Keys.SetString(i, authKey, MAX_AUTHID_LENGTH);
-
-            // Update account
-            account.accountKey = authKey;
-
-            // Swap index
-            this.Accounts.SetArray(authKey, account, sizeof(Account));
-            this.Accounts.Remove(nameKey);
-        }
-	}
 
 	public float StartingCurrency(TFTeam team) {
 		return this.Starting + this.Bonus(team);
@@ -445,7 +409,7 @@ methodmap Bank < MetaStringMap {
 
 		// wipe acquisitions
 		this.Bonuses.Clear();
-		this.Keys.Clear();
+		// this.Keys.Clear();
 	}
 
 	public void ResetAccounts() {
