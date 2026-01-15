@@ -19,7 +19,7 @@
 #include "payment_controller"
 
 // Persistent, multi-target timer
-#include "combat_timer"
+#include "omni_timer"
 
 // Allows upgrade menu access via bindable chat command
 #include "pocket_upgrades"
