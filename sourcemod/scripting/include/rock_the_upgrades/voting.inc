@@ -14,17 +14,22 @@ static bool Passed;                 // Stores the success of a passing vote coun
 
 ConVar g_Cvar_VoteThreshold;        // A % of connected players
 ConVar g_Cvar_AutoEnableThreshold;  // A flat number of players
+
+static Votes g_Votes;               // The Votes instance
 /**
  * A votemap is a stringmap with KvP of ClientName -> 1. The value is arbitrary,
  * the key is unique, and most logic is driven by the size of the map.
  */
-methodmap VoteMap < StringMap {
+methodmap Votes < StringMap {
+    public static Votes Instance() {
+        if (g_Votes == null) Votes.Init();
+        return g_Votes;
+    }
     // Unassuming constructor
-    public VoteMap() {
+    public static void Init() {
         g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
 	    g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "16", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
-        StringMap votes = new StringMap();
-        return view_as<VoteMap>(votes);
+        g_Votes = view_as<Votes>(new StringMap());
     }
 
     // Call on round start or map start

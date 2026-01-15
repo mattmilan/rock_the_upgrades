@@ -84,8 +84,8 @@
 #include <tf2>
 
 #include <rock_the_upgrades/rock_the_includes>
-// #include <bank>
-// #include <bank/printer>
+// #include <Bank.Instance()>
+// #include <Bank.Instance()/printer>
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -106,8 +106,6 @@ ConVar g_Cvar_CombatTimeout;    // TODO: move to combat_timer.inc?
 UpgradesController upgrades;    // Manages upgrades state, setup, and cleanup
     PocketUpgrades pocketMenu;	// Allows chat command to open upgrades menu
        CombatTimer combatTimer;	// A persistent timer to fade client combat status
-           VoteMap votes;		// Tracks votes and player counts. Can auto-pass
-		   	  Bank bank;		// Tracks player state and currency
               bool RTULateLoad; // Might be needed to get SteamIDs in lateload
 
  /*===( t.4 Forwards )========================================================*/
@@ -143,8 +141,7 @@ void InitPlugin() {
 void InitDependencies() {
 	SendUpgradesFileToClients();
 	InitBankTxnConVars();
-	bank = Bank.Instance();
-	votes = new VoteMap();
+
 	upgrades = new UpgradesController();
 	upgrades.OnPluginStarted();
 	// revengeTracker = RevengeTracker.Instance();
@@ -152,22 +149,22 @@ void InitDependencies() {
 	combatTimer.Init(g_Cvar_CombatTimeout.IntValue);
 	// pocket will set locks according to the values in combatTimer
 	pocketMenu.Init(combatTimer);
-	// payment.Init(bank);
+	// payment.Init(Bank.Instance());
 }
 
 public void OnPluginEnd() {
 	// delete payment;
-	votes.Close();
+	Votes.Instance().Close();
 	upgrades.OnPluginEnded();
 	combatTimer.Stop();
-	bank.Close();
+	Bank.Instance().Close();
 }
 
 public void OnMapStart() {
 	ApplyCustomUpgradesFile();
 
 	// payment.Reset();
-	votes.Reset();
+	Votes.Instance().Reset();
 	upgrades.OnMapStarted();
 	combatTimer.Start();
 }
@@ -175,48 +172,48 @@ public void OnMapStart() {
 public void OnMapEnd() {
 	pocketMenu.Reset();
 	combatTimer.Stop();
-	bank.Wipe();
+	Bank.Instance().Wipe();
 }
 
 // Simply increment voting threshold. Continued in `OnClientAuthorized`
 public void OnClientConnected(int client) {
 	if (IsFakeClient(client)) return;
 
-	votes.PlayerCount++;
+	Votes.Instance().PlayerCount++;
 }
 
 // TheBank requires a unique trusted identifier which is now available
 public void OnClientAuthorized(int client, const char[] authString) {
 	if (IsFakeClient(client)) return;
 
-	bank.Connect(client);
+	Bank.Instance().Connect(client);
 }
 
-// NOTE: We count votes because the vote might pass if a player disconnects without voting
+// NOTE: We count Votes.Instance() because the vote might pass if a player disconnects without voting
 public void OnClientDisconnect(int client) {
 	if (IsFakeClient(client)) return;
 
-	bank.Disconnect(client);
-	votes.Drop(client);
-	if (!votes.Count()) return;
+	Bank.Instance().Disconnect(client);
+	Votes.Instance().Drop(client);
+	if (!Votes.Instance().Count()) return;
 
-	bank.Sync();
+	Bank.Instance().Sync();
 	upgrades.Enable(.silent=true);
 }
 
 // Disallow voting during the waiting phase
 public void TF2_OnWaitingForPlayersStart() {
-    votes.WaitingForPlayers = true;
+    Votes.Instance().WaitingForPlayers = true;
 }
 
 // Re-allow voting once waiting is complete, and trigger optional Auto-Enable
 public void TF2_OnWaitingForPlayersEnd() {
-    votes.WaitingForPlayers = false;
+    Votes.Instance().WaitingForPlayers = false;
 
-	if (!votes.Count()) return;
+	if (!Votes.Instance().Count()) return;
 
 	PrintToChatAll("[RTU] %t", "RTU AutoEnable");
-	bank.Sync();
+	Bank.Instance().Sync();
 	upgrades.Enable(.silent=true);
 }
 
@@ -286,7 +283,7 @@ Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
 	if (!ValidPlayer(client, classType, team)) return Plugin_Continue;
 
 	// Update or create account and sync balance
-	bool revert = bank.OnPlayerSpawn(client, classType, team);
+	bool revert = Bank.Instance().OnPlayerSpawn(client, classType, team);
 
 	// Revert needs game state to settle before running
 	if (revert) CreateTimer(0.1, Timer_RevertClient, client);
@@ -297,7 +294,7 @@ Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
 // Must be called after a 100ms delay to give game state time to settle
 Action Timer_RevertClient(Handle timer, any client) {
 	upgrades.ResetPlayer(client);
-	bank.Revert(client);
+	Bank.Instance().Revert(client);
 
 	return Plugin_Stop;
 }
@@ -305,7 +302,7 @@ Action Timer_RevertClient(Handle timer, any client) {
 // Reset on round start unless configured otherwise. This may be firing too often.
 Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
 	if (upgrades.ResetOnRoundStart) {
-		bank.ResetAccounts();
+		Bank.Instance().ResetAccounts();
 		upgrades.Reset();
 	}
 
@@ -324,7 +321,7 @@ Action Event_TeamplayWinPanel(Event event, const char[] name, bool dontBroadcast
 Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	if (upgrades.Enabled && ValidClient(client)) bank.ResolveDelta(client);
+	if (upgrades.Enabled && ValidClient(client)) Bank.Instance().ResolveDelta(client);
 
 	return Plugin_Continue;
 }
@@ -386,10 +383,10 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 Action Command_RTU(int client, int args) {
 	if (client <= 0) PrintToServer("[RTU] Command `rtu` is client-only.");
 	else if (!upgrades.Enabled) {
-		votes.Add(client);
-		if (votes.Count()) {
+		Votes.Instance().Add(client);
+		if (Votes.Instance().Count()) {
 			upgrades.Enable();
-        	bank.Sync();
+        	Bank.Instance().Sync();
 		}
 	}
 	else {
@@ -404,14 +401,14 @@ Action Command_RTU(int client, int args) {
 // Player Command - show account data for all of client's classes
 Action Command_RTUAccount(int client, int args) {
 	if (client == 0) PrintToServer("[RTU] %t", "Command `rtu_account` can only be used by clients.");
-	else bank.PrintAccount(client);
+	else Bank.Instance().PrintAccount(client);
 
 	return Plugin_Handled;
 }
 
 // Admin Command - show account data for all clients' current class
 Action Command_RTUBanks(int client, int args) {
-	bank.PrintToServer();
+	Bank.Instance().PrintToServer();
 
 	return Plugin_Handled;
 }
@@ -421,8 +418,8 @@ Action Command_RTUEnable(int client, int args) {
 	if (upgrades.Enabled) {
 		ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled");
 	} else {
-		votes.Passed = true; // prevent votes from re-triggering an enable event
-		bank.Sync();
+		Votes.Instance().Passed = true; // prevent Votes.Instance() from re-triggering an enable event
+		Bank.Instance().Sync();
 		upgrades.Enable(); // reports enable to chat
 	}
 
@@ -434,8 +431,8 @@ Action Command_RTUEnable(int client, int args) {
 Action Command_RTUDisable(int client, int args) {
 	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
 	else {
-		votes.Revert();
-		bank.ResetAccounts();
+		Votes.Instance().Revert();
+		Bank.Instance().ResetAccounts();
 		upgrades.Reset(.silent = true);
 		upgrades.Disable(); // reports disable to chat
 	}
@@ -447,7 +444,7 @@ Action Command_RTUDisable(int client, int args) {
 Action Command_RTUReset(int client, int args) {
 	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
 	else {
-		bank.ResetAccounts();
+		Bank.Instance().ResetAccounts();
 		upgrades.Reset(); // reports reset to chat
 	}
 
@@ -474,10 +471,10 @@ Action Command_RTUPay(int client, int args) {
 	char target[MAX_NAME_LENGTH]; GetCmdArg(2, target, MAX_NAME_LENGTH);
 
 	// Resolve to target
-	if (target[0]) bank.DepositTarget(amount, target, .replyTo=client);
+	if (target[0]) Bank.Instance().DepositTarget(amount, target, .replyTo=client);
 
 	// Resolve to client
-	else if (client > 0) bank.Deposit(amount, client);
+	else if (client > 0) Bank.Instance().Deposit(amount, client);
 
 	// Tell server that a target is required
 	else ReplyToCommand(client, "[RTU] Command `rtu_pay` cannot be called from server without specifying a target");
