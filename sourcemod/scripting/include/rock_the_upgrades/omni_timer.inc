@@ -1,9 +1,14 @@
-#if defined _combat_timer_included
+#if defined _omni_timer_included
  #endinput
 #endif
-#define _combat_timer_included
+#define _omni_timer_included
 
-ConVar g_Cvar_CombatTimeout;
+// #define MAX_OMNITIMER_KEY_LENGTH 16
+#define MAX_OMNITIMER_MESSAGE_LENGTH 32
+
+#include <json/helpers/metastringmap>
+
+ConVar g_Cvar_OmniTimeout;
 
 static OmniTimer g_OmniTimer;
 
@@ -37,117 +42,111 @@ static OmniTimer g_OmniTimer;
  *
  * bool TurnInvisible(int client) {
  *     char timerKey[3]; IntToString(client, timerKey, sizeof(timerKey));
- *     if (OmniTimer.Get(timerKey, _)) return false
+ *     if (OmniTimer.Check(timerKey, _)) return false
  *     else ...
  * }
  */
-
-methodmap OmniTimer < TypedStringMap {
+methodmap OmniTimer < MetaStringMap {
     public static OmniTimer Instance() {
         if (g_OmniTimer == null) OmniTimer.Init();
 
         return g_OmniTimer;
     }
 
+    // OnPluginStart
     public static void Init() {
-        g_Cvar_CombatTimeout = CreateConVar("rtu_combat_timeout", "3.0", "Duration in seconds after taking or dealing damage that a player is considered 'in combat' and cannot open the upgrade menu. [3.0, 0..]", 0, true, 0.0, false);
-        g_OmniTimer = view_as<OmniTimer>(new StringMap());
-        OmniTimer.Start();
+        if (g_OmniTimer != null) return;
+
+        g_Cvar_OmniTimeout = CreateConVar("omni_timer_timeout", "3.0", "Default duration in seconds of omni timer entries. [3.0, 0..]", 0, true, 0.0, false);
+        g_OmniTimer = view_as<OmniTimer>(new MetaStringMap());
     }
 
-    // Start timer when map starts
+    // OnMapStart
     public static void Start() {
         if (OmniTimer.Instance().Ticker != INVALID_HANDLE) return;
 
-        OmniTimer.Instance().Ticker = CreateTimer(1.0, Timer_OmniTimerTicker, OmniTimer.Instance(), TIMER_REPEAT);
+        OmniTimer.Instance().Ticker = CreateTimer(
+            1.0,
+            Timer_OmniTimerTicker,
+            OmniTimer.Instance(),
+            TIMER_REPEAT
+        );
     }
 
-    // Stop timer when map ends
+    // OnMapEnd
     public static void Stop() {
-        if (OmniTimer.Instance().Ticker == INVALID_HANDLE) return;
-
         // clear remaining times
         OmniTimer.Instance().Clear();
+
+        // bail if ticker not running
+        if (OmniTimer.Instance().Ticker == INVALID_HANDLE) return;
+
         // close ticker
         CloseHandle(OmniTimer.Instance().Ticker);
         OmniTimer.Instance().Ticker = INVALID_HANDLE;
     }
 
-    // Check lock status for a given client. Provide remaining lock time in buffer
-    public static bool Locked(char key[MAX_AUTHID_LENGTH], char buffer[32]="") {
-        int time;
-        bool locked = OmniTimer.Instance().GetValue(key, time);
-        if (locked) Format(buffer, sizeof(buffer), "%d seconds remaining", time);
-
-        return locked;
+   // Starts/Restarts a timer for the given key
+    public static bool Add(char[] key, int time = 0) {
+        if (!time) time = OmniTimer.Instance().DefaultTimeout;
+        return OmniTimer.Instance().SetInt(key, time);
     }
 
-   // Starts/Restarts a combat timer for the given client
-    public static bool Add(char key[MAX_AUTHID_LENGTH]) {
-        return OmniTimer.Instance().SetValue(key, OmniTimer.Instance().Timeout);
+    // Checks if a timer exists for the given key
+    public static bool Get(char[] key) {
+        return OmniTimer.Instance().GetInt(key, 0);
     }
 
-    // Delegate
-    public static bool Get(char key[MAX_AUTHID_LENGTH], int &buffer=0) {
-        if (OmniTimer.Instance().GetValue(key, buffer)) return true;
-
-        return false;
-    }
-
-    public static bool Drop(char key[MAX_AUTHID_LENGTH]) {
+    // Remove a time before it expires
+    public static bool Drop(char[] key) {
         return OmniTimer.Instance().Remove(key);
     }
 
     // private
 
+    // Decrements all entries on a 1-second interval
     property Handle Ticker {
         public get() { return this.GetHandle("ticker"); }
         public set(Handle value) { this.SetHandle("ticker", value); }
     }
 
-    property int Timeout {
-        public get() { return RoundToNearest(g_Cvar_CombatTimeout.FloatValue); }
+    // Default duration of new entries in seconds
+    property int DefaultTimeout {
+        public get() { return RoundToNearest(g_Cvar_OmniTimeout.FloatValue); }
     }
 
+    // Worker method that tics down all time entries in 1-second intervals
     public void Tick() {
         StringMapSnapshot keys = this.Snapshot();
 
         // No keys == No work
         if (keys.Length == 0) return;
 
-        this.DecrementTimes(keys);
-    }
-
-    public void DecrementTimes(StringMapSnapshot keys) {
-        // Iteration vars
-        char key[MAX_AUTHID_LENGTH];
-
-        // Iterate keys
         for (int i = 0; i < keys.Length; i++) {
             // Grab key
-            keys.GetKey(i, key, MAX_AUTHID_LENGTH);
-            this.DecrementTime(key);
+            int keySize = keys.KeyBufferSize(i);
+            char[] key = new char[keySize];
+            keys.GetKey(i, key, keySize);
+            this.Tock(key);
+
+
+            // this.Set(key, time - 1);
         }
     }
 
-    public void DecrementTime(char key[MAX_AUTHID_LENGTH]) {
-        this.SetInt(key, this.GetInt(key) - 1);
-    }
+    // Decrement (and remove expired) entries
+    public bool Tock(char[] key) {
+        int time = this.GetInt(key) - 1;
 
-
-    // Sets the given client's combat timer, removing at 0
-    public bool Set(char key[MAX_AUTHID_LENGTH], int time) {
-        bool remove = time <= 0;
-
-        return remove ?
+        time <= 0 ?
             this.Remove(key) :
-            this.SetValue(key, time);
+            this.SetInt(key, time);
     }
 }
 
 // Timers must be static and cannot live within methodmaps
-Action Timer_OmniTimerTicker(Handle timer, OmniTimer combatTimer) {
-    combatTimer.Tick();
+Action Timer_OmniTimerTicker(Handle timer, OmniTimer omniTimer) {
+    omniTimer.Tick();
 
 	return Plugin_Continue;
 }
