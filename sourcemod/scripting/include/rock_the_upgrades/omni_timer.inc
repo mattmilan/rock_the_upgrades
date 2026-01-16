@@ -31,19 +31,23 @@ static OmniTimer g_OmniTimer;
  *
  * Example: Adding a timer to a player when they take damage
  *
+ * HookEvent("player_hurt", Event_PlayerHurt, EventHookMode_Post);
+ * ...
  * Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
  *     int client = GetClientOfUserId(event.GetInt("userid"));
- *     char timerKey[3]; IntToString(client, timerKey, sizeof(timerKey));
+ *     char timerKey[MAX_NAME_LENGTH];
+ *     GetClientName(client, timerKey, sizeof(timerKey));
  *     OmniTimer.Add(timerKey);
  *     return Plugin_Continue;
  * }
  *
  * Example: Checking if a player is in combat before allowing an action
  *
- * bool TurnInvisible(int client) {
- *     char timerKey[3]; IntToString(client, timerKey, sizeof(timerKey));
- *     if (OmniTimer.Check(timerKey, _)) return false
- *     else ...
+ * void TryTurnInvisible(int client) {
+ *     char timerKey[MAX_NAME_LENGTH];
+ *     GetClientName(client, timerKey, sizeof(timerKey));
+ *     if (OmniTimer.Get(timerKey) > 0) return false;
+ *     else TurnInvisible(client);
  * }
  */
 methodmap OmniTimer < MetaStringMap {
@@ -128,9 +132,6 @@ methodmap OmniTimer < MetaStringMap {
             char[] key = new char[keySize];
             keys.GetKey(i, key, keySize);
             this.Tock(key);
-
-
-            // this.Set(key, time - 1);
         }
     }
 
