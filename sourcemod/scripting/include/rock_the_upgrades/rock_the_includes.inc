@@ -13,10 +13,10 @@
 
 #include "bank"
 // Enable/Disable upgrade system, and easily reset entity upgrades
-#include "upgrades_controller"
+#include "upgrades"
 
 // Manages configurable currency gains and losses across various events
-#include "payment_controller"
+#include "rewards"
 
 // Persistent, multi-target timer
 #include "omni_timer"
@@ -33,3 +33,9 @@
 #include "revenge_tracker"
 
 #include "auth_keys"
+
+
+#include "player_profiles"
+
+#include "player_profile"
+

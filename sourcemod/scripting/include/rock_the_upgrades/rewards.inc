@@ -3,10 +3,10 @@
  * TODO: description
  */
 
-#if defined _payment_controller_included
+#if defined _rewards_included
  #endinput
 #endif
-#define _payment_controller_included
+#define _rewards_included
 
 // #include "shared"
 // #include <tf2>

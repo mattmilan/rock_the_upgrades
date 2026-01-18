@@ -151,3 +151,16 @@ Action Timer_OmniTimerTicker(Handle timer, OmniTimer omniTimer) {
 
 	return Plugin_Continue;
 }
+
+methodmap CombatTimer < OmniTimer {
+    public static bool Add(int client, int time = 0) {
+        char key[MAX_NAME_LENGTH];
+        AuthKeys.Get(client, key);
+        OmniTimer.Add(key, time);
+    }
+    // add
+    // drop
+    // start
+    // stop
+
+}

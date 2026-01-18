@@ -1,20 +1,20 @@
 /**
- * Rock The Upgrades: Account
+ * Rock The Upgrades: PlayerProfile
  * TODO: description
  */
 
-#if defined _account_included
+#if defined _playerProfile_included
  #endinput
 #endif
-#define _account_included
+#define _playerProfile_included
 #define MAX_WEAPONS_PER_CLASS 16
 
 #pragma newdecls required
 #pragma semicolon 1
 
 #include <tf2_stocks>
-// Helps Account to track spending at the class level
-enum struct ClassData {
+// Helps PlayerProfile to track spending at the class level
+enum struct TFClassData {
 	float spent; 		  				  // refundable
 	float burnt; 		  				  // non-refundable
 	bool markedForRevert; 				  // resetting non-active classes
@@ -35,9 +35,9 @@ enum struct ClassData {
 }
 
 // A data structure used by bank to track player currency
-enum struct Account {
+enum struct PlayerProfile {
 	// Player-unique identifier, useful when reconnecting
-	char accountKey[MAX_AUTHID_LENGTH + 1];
+	char key[MAX_NAME_LENGTH];
 
     // Client ID for reference
     int client;
@@ -53,21 +53,21 @@ enum struct Account {
 
 	// track refundable and non-refundable spending per class
 	TFClassType currentClass;
-	ClassData classData[10];
+	TFClassData tfClassData[10];
 
 	// Track team to support team-based currency when clients are disconnected
 	TFTeam currentTeam;
 
-	void Init(int client, char accountKey[MAX_AUTHID_LENGTH]) {
-		strcopy(this.accountKey, sizeof(this.accountKey), accountKey);
+	void Init(int client, char key[MAX_NAME_LENGTH]) {
+		strcopy(this.key, sizeof(this.key), key);
 		this.client = client;
 		this.connected = true;
 	}
 
-	void Activate(float startingCurrency) {
+	void Activate() {
 		if (this.activated) return;
 
-		this.earned = startingCurrency;
+		this.earned = Bank.Instance().StartingCurrency(this.currentTeam);
 		this.activated = true;
 	}
 
@@ -77,42 +77,53 @@ enum struct Account {
 
 	float Spent(TFClassType classType = view_as<TFClassType>(-1)) {
 		if (classType == view_as<TFClassType>(-1)) classType = this.currentClass;
-		return this.classData[classType].spent;
+		return this.tfClassData[classType].spent;
 	}
 
 	float Burned(TFClassType classType = view_as<TFClassType>(-1)) {
 		if (classType == view_as<TFClassType>(-1)) classType = this.currentClass;
-		return this.classData[classType].burnt;
+		return this.tfClassData[classType].burnt;
 	}
 
 	bool NeedsRevert(TFClassType classType = view_as<TFClassType>(-1)) {
 		if (classType == view_as<TFClassType>(-1)) classType = this.currentClass;
-		return this.classData[classType].markedForRevert;
+		return this.tfClassData[classType].markedForRevert;
 	}
 
 	bool Revert() {
-		this.classData[this.currentClass].markedForRevert = false;
-		this.classData[this.currentClass].spent = 0.0;
+		if (!this.NeedsRevert()) return false;
+
+		this.tfClassData[this.currentClass].markedForRevert = false;
+		this.tfClassData[this.currentClass].spent = 0.0;
 
 		return true;
 	}
 
-	// Called by `ResetAccounts` during `teamplay_round_start`, `rtu_reset` and `rtu_disable`
+	void SyncEntity() {
+		SetEntProp(
+			this.client,
+			Prop_Send,
+			"m_nCurrency",
+			RoundToCeil(this.Balance())
+		);
+	}
+
+	// Called by `ResetAll` during `teamplay_round_start`, `rtu_reset` and `rtu_disable`
 	void Reset(float startingCurrency) {
 		this.earned = startingCurrency;
 
 		// for all classes
 		for (TFClassType classType = TFClass_Scout; classType <= TFClass_Engineer; classType++) {
 			// clear spending and mark for revert
-			this.classData[classType].Reset();
+			this.tfClassData[classType].Reset();
 			if (classType == this.currentClass) {
-				this.classData[classType].markedForRevert = false;
+				this.tfClassData[classType].markedForRevert = false;
 			}
 		}
 	}
 
 	void Refund() {
-		this.classData[this.currentClass].spent = 0.0;
+		this.tfClassData[this.currentClass].spent = 0.0;
 	}
 
 	// NOTE: I would use TFClass_Unknown but that might represent Spectators
@@ -123,25 +134,25 @@ enum struct Account {
 			 classType = this.currentClass;
 
 		return this.earned
-			 - this.classData[classType].spent
-			 - this.classData[classType].burnt;
+			 - this.tfClassData[classType].spent
+			 - this.tfClassData[classType].burnt;
 	}
 
-	// Builds a multi-line string representing full account info
+	// Builds a multi-line string representing full playerProfile info
 	char[] ToString() {
         char buffer[1024];
 		char row[128];
 		char className[MAX_NAME_LENGTH];
 		char clientName[MAX_NAME_LENGTH]; GetClientName(this.client, clientName, sizeof(clientName));
 
-		// Account Header
+		// PlayerProfile Header
 		Format(
 			buffer,
 			sizeof(buffer),
-			"[RTU][BANK] Account Info\nClient %3d - %s\nSteamID: %s\nEarned: %.2f\n",
+			"[RTU][BANK] PlayerProfile Info\nClient %3d - %s\nSteamID: %s\nEarned: %.2f\n",
 			this.client,
 			clientName,
-			this.accountKey,
+			this.key,
 			this.earned
 		);
 
@@ -158,10 +169,10 @@ enum struct Account {
 				sizeof(row),
 				"%9s|%8s|%9.2f|%9.2f|%9.2f\n",
 				className,
-				// this.classData[classType].played ? "true" : "",
-				this.classData[classType].markedForRevert ? "true" : "",
-				this.classData[classType].spent,
-				this.classData[classType].burnt,
+				// this.tfClassData[classType].played ? "true" : "",
+				this.tfClassData[classType].markedForRevert ? "true" : "",
+				this.tfClassData[classType].spent,
+				this.tfClassData[classType].burnt,
 				this.Balance(classType)
 			);
 
@@ -172,7 +183,7 @@ enum struct Account {
         return buffer;
     }
 
-	// Builds row with values matching the headers in `Bank.PrintAccounts`
+	// Builds row with values matching the headers in `Bank.PrintPlayerProfiles`
 	char[] ToRow() {
 		char row[128];
 		char className[MAX_NAME_LENGTH];
@@ -183,13 +194,13 @@ enum struct Account {
 			row,
 			sizeof(row),
 			"%21s|%9d|%12s|%9s|%9.2f|%9.2f|%9.2f|%9.2f\n",
-			this.accountKey,
+			this.key,
 			this.client,
 			this.connected ? "true" : "false",
 			className,
 			this.earned,
-			this.classData[this.currentClass].spent,
-			this.classData[this.currentClass].burnt,
+			this.tfClassData[this.currentClass].spent,
+			this.tfClassData[this.currentClass].burnt,
 			this.Balance()
 		);
 

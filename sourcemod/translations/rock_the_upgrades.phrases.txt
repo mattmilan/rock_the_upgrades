@@ -16,8 +16,12 @@
 		"en"			"Enabling upgrades automatically due to player count!"
 	}
 
-	"RTU Enabled" {
+	"RTU EnabledByVote" {
 		"en"			"Vote has succeeded - enabling upgrades!"
+	}
+
+	"RTU EnabledByAdmin" {
+		"en"			"Admin has enabled upgrades!"
 	}
 
 	"RTU Disabled" {

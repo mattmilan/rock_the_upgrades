@@ -4,12 +4,8 @@
 #define _auth_manager_included
 
 #include "shared"
+#include "auth_key"
 
-enum AuthMode {
-    AuthModeUnset = 0,
-    AuthModeSteamId,
-    AuthModePlayerName
-}
 
 static AuthKeys authKeys;
 static AuthMode authMode;
@@ -28,6 +24,10 @@ methodmap AuthKeys < ArrayList {
 
     public static AuthMode Mode() {
         return authMode;
+    }
+
+    public static bool Fallback() {
+        return authMode == AuthModePlayerName;
     }
 
     // OnClientConnect, Reauthorize
@@ -51,7 +51,7 @@ methodmap AuthKeys < ArrayList {
         AuthKeys.Instance().SetAuthMode(authKey.mode);
     }
 
-    public static bool Get(int client, char buffer[MAX_AUTHID_LENGTH], AuthMode mode = AuthModeUnset) {
+    public static bool Get(int client, char buffer[MAX_NAME_LENGTH], AuthMode mode = AuthModeUnset) {
         if (mode == AuthModeUnset) mode = authMode;
 
         AuthKey key;
@@ -59,6 +59,10 @@ methodmap AuthKeys < ArrayList {
 
         key.GetString(buffer, mode);
         return true;
+    }
+
+    public static bool GetKeyData(int client, AuthKey out) {
+        return AuthKeys.Instance().GetArray(client, out, sizeof(AuthKey)) > 0;
     }
 
     public void SetAuthMode(AuthMode mode) {
@@ -76,41 +80,6 @@ methodmap AuthKeys < ArrayList {
             if (!ValidClient(i)) continue;
 
             AuthKeys.Register(i);
-        }
-    }
-}
-
-// The only thing the world cares about is the GetString method
-// Access to that value is provided by AuthKeys.Get()
-// The rest of this struct is to support internal management
-enum struct AuthKey {
-    int client;
-    char steamID[MAX_AUTHID_LENGTH];
-    char playerName[MAX_AUTHID_LENGTH];
-    AuthMode mode;
-
-    // Derives values from client and returns auth mode
-    AuthMode Init(int client) {
-        this.client = client;
-        GetClientName(client, this.playerName, MAX_AUTHID_LENGTH);
-        return this.Authorize();
-    }
-
-    AuthMode Authorize() {
-        bool authorized = GetClientAuthId(this.client, AuthId_SteamID64, this.steamID, MAX_AUTHID_LENGTH);
-        this.mode = authorized ? AuthModeSteamId : AuthModePlayerName;
-        return this.mode;
-    }
-
-
-    void GetString(char key[MAX_AUTHID_LENGTH], AuthMode mode) {
-        switch (mode) {
-            case AuthModeSteamId:
-                strcopy(key, MAX_AUTHID_LENGTH, this.steamID);
-            case AuthModePlayerName:
-                strcopy(key, MAX_AUTHID_LENGTH, this.playerName);
-            default:
-                strcopy(key, MAX_AUTHID_LENGTH, "");
         }
     }
 }

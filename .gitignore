@@ -1,6 +1,6 @@
 *
 !*/
-!**/sourcemod/scripting/include/rock_the_upgrades/*
+!**/sourcemod/scripting/include/rock_the_upgrades/**
 !**/sourcemod/scripting/include/bank/**
 !bank.*
 !rock_the_upgrades.*

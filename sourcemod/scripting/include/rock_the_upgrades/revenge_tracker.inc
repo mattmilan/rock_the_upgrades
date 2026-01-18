@@ -19,14 +19,14 @@ methodmap RevengeTracker < TypedStringMap {
 		return g_RevengeTracker;
 	}
 
-	//public void Track(char dominator[MAX_AUTHID_LENGTH], char dominated[MAX_AUTHID_LENGTH]) {
+	//public void Track(char dominator[MAX_NAME_LENGTH], char dominated[MAX_NAME_LENGTH]) {
 	public void Track(int dominator, int dominated) {
 		// buffer
 		RevengeEntry entry;
 
 		// key buffers
-		char dominatorKey[MAX_AUTHID_LENGTH]; AuthKeys.Get(dominator, dominatorKey);
-		char dominatedKey[MAX_AUTHID_LENGTH]; AuthKeys.Get(dominated, dominatedKey);
+		char dominatorKey[MAX_NAME_LENGTH]; AuthKeys.Get(dominator, dominatorKey);
+		char dominatedKey[MAX_NAME_LENGTH]; AuthKeys.Get(dominated, dominatedKey);
 
 		// find or build entry
 		bool existing = this.GetArray(dominatorKey, entry, sizeof(RevengeEntry));
@@ -44,8 +44,8 @@ methodmap RevengeTracker < TypedStringMap {
 		RevengeEntry entry;
 
 		// key buffers
-		char dominatorKey[MAX_AUTHID_LENGTH]; AuthKeys.Get(dominator, dominatorKey);
-		char dominatedKey[MAX_AUTHID_LENGTH]; AuthKeys.Get(dominated, dominatedKey);
+		char dominatorKey[MAX_NAME_LENGTH]; AuthKeys.Get(dominator, dominatorKey);
+		char dominatedKey[MAX_NAME_LENGTH]; AuthKeys.Get(dominated, dominatedKey);
 
 		// false unless found
 		bool found = this.GetArray(dominatorKey, entry, sizeof(RevengeEntry));
@@ -70,12 +70,12 @@ enum struct RevengeEntry {
 	}
 
 	// Player has just dominated another player
-	void Track(char victim[MAX_AUTHID_LENGTH]) {
+	void Track(char victim[MAX_NAME_LENGTH]) {
 		this.dominatedSteamIds.Push(victim);
 	}
 
 	// Player is dominating another player
-	bool Check(char victim[MAX_AUTHID_LENGTH]) {
+	bool Check(char victim[MAX_NAME_LENGTH]) {
 		int index = this.dominatedSteamIds.FindValue(victim);
 		return this.Remove(index);
 	}

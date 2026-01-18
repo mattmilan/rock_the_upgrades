@@ -100,11 +100,10 @@ public Plugin myinfo = {
 
 /*===( t.3 Variables )========================================================*/
 
-UpgradesController upgrades;    // Manages upgrades state, setup, and cleanup
     PocketUpgrades pocketMenu;	// Allows chat command to open upgrades menu
               bool RTULateLoad; // Might be needed to get SteamIDs in lateload
 
- /*===( t.4 Forwards )========================================================*/
+ /*===( t.4 Forwards - in Lifecycle Order )=======================================================*/
 
 // TODO: might not be needed, requires exploration
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max) {
@@ -115,6 +114,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 public void OnPluginStart() {
 	InitPlugin();
 	InitDependencies();
+
 	if (!RTULateLoad) return;
 
 	for (int i=1; i<=MaxClients; i++) {
@@ -124,6 +124,84 @@ public void OnPluginStart() {
 		OnClientAuthorized(i, "");
 	}
 }
+
+public void OnMapStart() {
+	ApplyCustomUpgradesFile();
+
+	// payment.Reset();
+	Votes.Instance().Reset();
+	Upgrades.Restart();
+	OmniTimer.Start();
+}
+
+// Simply increment voting threshold. Continued in `OnClientAuthorized`
+public void OnClientConnected(int client) {
+	if (IsFakeClient(client)) return;
+
+	Votes.Instance().PlayerCount++;
+}
+
+// TheBank requires a unique trusted identifier which is now available
+public void OnClientAuthorized(int client, const char[] authString) {
+	if (IsFakeClient(client)) return;
+
+	AuthKeys.Register(client);
+	PlayerProfiles.Connect(client);
+
+}
+
+// NOTE: We count Votes.Instance() because the vote might pass if a player disconnects without voting
+public void OnClientDisconnect(int client) {
+	if (IsFakeClient(client)) return;
+
+
+	char playerProfileKey[MAX_NAME_LENGTH];
+	AuthKeys.Get(client, playerProfileKey);
+	OmniTimer.Drop(playerProfileKey);
+
+	Votes.Instance().Drop(client);
+
+	bool countFinished = Votes.Instance().Count();
+	if (countFinished) OnVoteResult(Votes.Instance().Result);
+}
+
+public void OnVoteResult(VoteResult result) {
+	// dc, auto-enable
+	// Upgrades.Enable(.silent=true);
+
+	Upgrades.Enable(result);
+	PlayerProfiles.Sync();
+}
+
+// Disallow voting during the waiting phase
+public void TF2_OnWaitingForPlayersStart() {
+    Votes.Instance().WaitingForPlayers = true;
+}
+
+// Re-allow voting once waiting is complete, and trigger optional Auto-Enable
+public void TF2_OnWaitingForPlayersEnd() {
+    Votes.Instance().WaitingForPlayers = false;
+
+	bool countFinished = Votes.Instance().Count();
+	if (countFinished) OnVoteResult(Votes.Instance().Result);
+}
+
+public void OnMapEnd() {
+	pocketMenu.Reset();
+	OmniTimer.Stop();
+	Bank.Instance().Wipe();
+}
+
+public void OnPluginEnd() {
+	// delete payment;
+	Votes.Instance().Close();
+	Upgrades.End();
+	OmniTimer.Stop();
+	Bank.Instance().Close();
+}
+
+
+
 
 void InitPlugin() {
 	HookEvents();
@@ -138,82 +216,11 @@ void InitDependencies() {
 	SendUpgradesFileToClients();
 	InitBankTxnConVars();
 
-	upgrades = new UpgradesController();
-	upgrades.OnPluginStarted();
+	Upgrades.Init();
 
 	// pocket will set locks according to the values in combatTimer
 	pocketMenu.Init();
 
-}
-
-public void OnPluginEnd() {
-	// delete payment;
-	Votes.Instance().Close();
-	upgrades.OnPluginEnded();
-	OmniTimer.Stop();
-	Bank.Instance().Close();
-}
-
-public void OnMapStart() {
-	ApplyCustomUpgradesFile();
-
-	// payment.Reset();
-	Votes.Instance().Reset();
-	upgrades.OnMapStarted();
-	OmniTimer.Start();
-}
-
-public void OnMapEnd() {
-	pocketMenu.Reset();
-	OmniTimer.Stop();
-	Bank.Instance().Wipe();
-}
-
-// Simply increment voting threshold. Continued in `OnClientAuthorized`
-public void OnClientConnected(int client) {
-	if (IsFakeClient(client)) return;
-
-	Votes.Instance().PlayerCount++;
-}
-
-// TheBank requires a unique trusted identifier which is now available
-public void OnClientAuthorized(int client, const char[] authString) {
-	if (IsFakeClient(client)) return;
-
-	Bank.Instance().Connect(client);
-}
-
-// NOTE: We count Votes.Instance() because the vote might pass if a player disconnects without voting
-public void OnClientDisconnect(int client) {
-	if (IsFakeClient(client)) return;
-
-	Bank.Instance().Disconnect(client);
-	Votes.Instance().Drop(client);
-
-	char accountKey[MAX_AUTHID_LENGTH];
-	AuthKeys.Get(client, accountKey);
-	OmniTimer.Drop(accountKey);
-
-	if (!Votes.Instance().Count()) return;
-
-	Bank.Instance().Sync();
-	upgrades.Enable(.silent=true);
-}
-
-// Disallow voting during the waiting phase
-public void TF2_OnWaitingForPlayersStart() {
-    Votes.Instance().WaitingForPlayers = true;
-}
-
-// Re-allow voting once waiting is complete, and trigger optional Auto-Enable
-public void TF2_OnWaitingForPlayersEnd() {
-    Votes.Instance().WaitingForPlayers = false;
-
-	if (!Votes.Instance().Count()) return;
-
-	PrintToChatAll("[RTU] %t", "RTU AutoEnable");
-	Bank.Instance().Sync();
-	upgrades.Enable(.silent=true);
 }
 
 /**
@@ -222,7 +229,7 @@ public void TF2_OnWaitingForPlayersEnd() {
  */
 
 void InitConvars() {
-
+	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
 }
 
 void HookEvents() {
@@ -244,7 +251,7 @@ void HookEvents() {
 
 void RegisterCommands() {
 	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
-	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
+	RegConsoleCmd("rtu_playerProfile", Command_RTUPlayerProfile, "Debug: Show full playerProfile data for the caller");
 	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
 	RegAdminCmd("rtu_pay", Command_RTUPay, ADMFLAG_GENERIC, "Debug: Pay 100 currency to the caller");
 	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
@@ -259,20 +266,20 @@ void RegisterCommands() {
 
 // Immediately closes and locks the pocket upgrade menu when dealing/receiving damage
 Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
-	if (!upgrades.Enabled) return Plugin_Continue;
+	if (!Upgrades.Instance().Enabled) return Plugin_Continue;
 
 	int clients[2];
 	clients[0] = GetClientOfUserId(event.GetInt("attacker"));
 	clients[1] = GetClientOfUserId(event.GetInt("userid"));
 
-	char accountKey[MAX_AUTHID_LENGTH];
+	char playerProfileKey[MAX_NAME_LENGTH];
 
 	for (int i = 0; i < 2; i++) {
 		int client = clients[i];
 		if (!ValidClient(client)) continue;
 
-		AuthKeys.Get(client, accountKey);
-		OmniTimer.Add(accountKey);
+		AuthKeys.Get(client, playerProfileKey);
+		OmniTimer.Add(playerProfileKey);
 		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
 
@@ -281,36 +288,17 @@ Action Event_PlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 
 // Critical function. Prevents the dodge exploit and keeps currency synced between class changes
 Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
-	// Extract event variables
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	TFClassType classType = view_as<TFClassType>(event.GetInt("class"));
-	TFTeam team = view_as<TFTeam>(event.GetInt("team"));
-
-	// Validate
-	if (!ValidPlayer(client, classType, team)) return Plugin_Continue;
-
-	// Update or create account and sync balance
-	bool revert = Bank.Instance().OnPlayerSpawn(client, classType, team);
-
-	// Revert needs game state to settle before running
-	if (revert) CreateTimer(0.1, Timer_RevertClient, client);
+	PlayerProfiles.OnPlayerSpawn(event);
 
 	return Plugin_Continue;
 }
 
-// Must be called after a 100ms delay to give game state time to settle
-Action Timer_RevertClient(Handle timer, any client) {
-	upgrades.ResetPlayer(client);
-	Bank.Instance().Revert(client);
-
-	return Plugin_Stop;
-}
-
 // Reset on round start unless configured otherwise. This may be firing too often.
 Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
-	if (upgrades.ResetOnRoundStart) {
-		Bank.Instance().ResetAccounts();
-		upgrades.Reset();
+	if (Upgrades.Instance().ResetOnRoundStart) {
+		Bank.Restart();
+		PlayerProfiles.ResetAll();
+		Upgrades.Reset();
 	}
 
 	pocketMenu.Unlock();
@@ -328,7 +316,8 @@ Action Event_TeamplayWinPanel(Event event, const char[] name, bool dontBroadcast
 Action Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	if (upgrades.Enabled && ValidClient(client)) Bank.Instance().ResolveDelta(client);
+	// if (Upgrades.Instance().Enabled && ValidClient(client))
+	PlayerProfiles.Sync(client);
 
 	return Plugin_Continue;
 }
@@ -389,31 +378,29 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 // Player combo command - either start a vote or open the upgrades menu
 Action Command_RTU(int client, int args) {
 	if (client <= 0) PrintToServer("[RTU] Command `rtu` is client-only.");
-	else if (!upgrades.Enabled) {
+	else if (!Upgrades.Instance().Enabled) {
 		Votes.Instance().Add(client);
-		if (Votes.Instance().Count()) {
-			upgrades.Enable();
-        	Bank.Instance().Sync();
-		}
+		bool countFinished = Votes.Instance().Count();
+		if (countFinished) OnVoteResult(Votes.Instance().Result);
 	}
 	else {
-		char accountKey[MAX_AUTHID_LENGTH];
-		AuthKeys.Get(client, accountKey);
-		pocketMenu.Show(client, accountKey);
+		char playerProfileKey[MAX_NAME_LENGTH];
+		AuthKeys.Get(client, playerProfileKey);
+		pocketMenu.Show(client, playerProfileKey);
 	}
 
 	return Plugin_Handled;
 }
 
-// Player Command - show account data for all of client's classes
-Action Command_RTUAccount(int client, int args) {
-	if (client == 0) PrintToServer("[RTU] %t", "Command `rtu_account` can only be used by clients.");
-	else Bank.Instance().PrintAccount(client);
+// Player Command - show playerProfile data for all of client's classes
+Action Command_RTUPlayerProfile(int client, int args) {
+	if (client == 0) PrintToServer("[RTU] %t", "Command `rtu_playerProfile` can only be used by clients.");
+	else Bank.Instance().PrintPlayerProfile(client);
 
 	return Plugin_Handled;
 }
 
-// Admin Command - show account data for all clients' current class
+// Admin Command - show playerProfile data for all clients' current class
 Action Command_RTUBanks(int client, int args) {
 	Bank.Instance().PrintToServer();
 
@@ -422,12 +409,11 @@ Action Command_RTUBanks(int client, int args) {
 
 // Admin command - skip voting and enable immediately
 Action Command_RTUEnable(int client, int args) {
-	if (upgrades.Enabled) {
+	if (Upgrades.Instance().Enabled) {
 		ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled");
 	} else {
-		Votes.Instance().Passed = true; // prevent Votes.Instance() from re-triggering an enable event
-		Bank.Instance().Sync();
-		upgrades.Enable(); // reports enable to chat
+		bool countFinished = Votes.Instance().Count(.force=true);
+		if (countFinished) OnVoteResult(Votes.Instance().Result);
 	}
 
 	return Plugin_Handled;
@@ -436,12 +422,12 @@ Action Command_RTUEnable(int client, int args) {
 // Admin command - disable immediately
 // TODO: Determine and support cases where we would not want to reset (doubtful)
 Action Command_RTUDisable(int client, int args) {
-	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
+	if (!Upgrades.Instance().Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
 	else {
 		Votes.Instance().Revert();
-		Bank.Instance().ResetAccounts();
-		upgrades.Reset(.silent = true);
-		upgrades.Disable(); // reports disable to chat
+		PlayerProfiles.ResetAll();
+		Upgrades.Reset(.silent = true);
+		Upgrades.Disable(); // reports disable to chat
 	}
 
 	return Plugin_Handled;
@@ -449,10 +435,10 @@ Action Command_RTUDisable(int client, int args) {
 
 // Admin command - revert all gains without disabling the upgrade system
 Action Command_RTUReset(int client, int args) {
-	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
+	if (!Upgrades.Instance().Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
 	else {
-		Bank.Instance().ResetAccounts();
-		upgrades.Reset(); // reports reset to chat
+		PlayerProfiles.ResetAll();
+		Upgrades.Reset(); // reports reset to chat
 	}
 
 	return Plugin_Handled;

@@ -3,10 +3,10 @@
  * TODO: description
  */
 
-#if defined _upgrades_controller_included
+#if defined _upgrades_included
  #endinput
 #endif
-#define _upgrades_controller_included
+#define _upgrades_included
 
 #include "../tf2attributes.inc"
 
@@ -46,58 +46,58 @@ static char pathsForDisableSFX[][] = {
 	"mvm/mvm_player_died.wav"
 };
 
+static Upgrades g_Upgrades;
+
 /*
  * MethodMap UpgradesController
  *
  * State manager for the upgrades system
  * Also facilitates player upgrade resets
  */
-methodmap UpgradesController < StringMap {
+methodmap Upgrades < StringMap {
+	public static Upgrades Instance() {
+		if (g_Upgrades == null) Upgrades.Init();
 
-	// Minimal constructor - yet another glorified StringMap
-	public UpgradesController() {
-		StringMap upgradesController = new StringMap();
-
-		// TODO: convar?
-		upgradesController.SetValue("debug", false);
-
-		return view_as<UpgradesController>(upgradesController);
+		return g_Upgrades;
 	}
 
-	// Establish values which persist between maps
-	public bool OnPluginStarted() {
-		this.InitSFXArrays();
+	public static void Init() {
+		if (g_Upgrades != null) return;
 
 		g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
 
-		return true;
+		g_Upgrades = view_as<Upgrades>(new StringMap());
+
+		Upgrades.InitSFXArrays();
 	}
 
-	public bool OnPluginEnded() {
+	public static bool End() {
 		SFX_UPGRADES_ENABLE.Clear();
 		SFX_UPGRADES_DISABLE.Clear();
-
+		g_Upgrades.Close();
+		g_Upgrades = null;
 		return true;
 	}
 
 	// Enforce safe defaults
-	public bool OnMapStarted() {
+	public static bool Restart() {
+
 		// Clear guards
-		this.Remove("ready");
-		this.Remove("hooked");
-		this.Remove("built");
+		Upgrades.Instance().Remove("ready");
+		Upgrades.Instance().Remove("hooked");
+		Upgrades.Instance().Remove("built");
 
 		// Fire guarded initializers
-		this.SetInitialUpgradesState();
-		this.PrecacheSFX();
+		Upgrades.Instance().SetInitialUpgradesState();
+		Upgrades.Instance().PrecacheSFX();
 
 		// Set guard
-		this.SetValue("ready", 1);
+		Upgrades.Instance().SetValue("ready", 1);
 		return true;
 	}
 
 	// Copy static string arrays into ArrayLists to facilitate random access
-	public void InitSFXArrays() {
+	public static void InitSFXArrays() {
 		SFX_UPGRADES_ENABLE = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 		for (int i = 0; i < sizeof(pathsForEnableSFX); i++)
 			SFX_UPGRADES_ENABLE.PushString(pathsForEnableSFX[i]);
@@ -110,7 +110,7 @@ methodmap UpgradesController < StringMap {
 	// Needs to be called every OnMapStart when asset precaching occurs
 	// TODO: Is this even required?
 	public void PrecacheSFX() {
-		if (this.Ready) return;
+		if (Upgrades.Instance().Ready) return;
 
 		// Precache all sounds
 		for (int i = 0; i < SFX_UPGRADES_ENABLE.Length; i++) {
@@ -138,7 +138,7 @@ methodmap UpgradesController < StringMap {
 	}
 
 	// Check the game rules prop to determine if upgrades are already enabled by map
-	// Should not be called mid-map as this is an initializer method and cannot account for mid-map game states
+	// Should not be called mid-map as this is an initializer method and cannot playerProfile for mid-map game states
 	// TODO: probably still need a path to determine if we need to add a func_upgradestation
 	public UPGRADES_STATE CheckInitialUpgradesState() {
 		return GameRules_GetProp("m_nForceUpgrades") == 2
@@ -146,22 +146,29 @@ methodmap UpgradesController < StringMap {
 			: UPGRADES_STATE_INITIAL;
 	}
 
-	public bool Enable(bool silent = false) {
-		if (this.Enabled) return false;
+	public static bool Enable(VoteResult result) {
+		if (Upgrades.Instance().Enabled) return false;
 
+		switch (result) {
+			case VoteResult_PassedByAdmin:
+				PrintToChatAll("[RTU] %t", "RTU EnabledByAdmin");
+			case VoteResult_PassedByVote:
+				PrintToChatAll("[RTU] %t", "RTU EnabledByVote");
+			default:
+				PrintToChatAll("[RTU] %t", "RTU AutoEnable");
+		}
 		// Set controller state to ENABLED and announce the change
-		if (!silent) PrintToChatAll("[RTU] %t", "RTU Enabled");
-		this.PlayRandom(SFX_UPGRADES_ENABLE);
-		this.State = UPGRADES_STATE_ENABLED_BY_RTU;
+		Upgrades.Instance().PlayRandom(SFX_UPGRADES_ENABLE);
+		Upgrades.Instance().State = UPGRADES_STATE_ENABLED_BY_RTU;
 
 		// MAGIC NUMBER: 2 enables upgrades (There may be an ENUM for this)
 		GameRules_SetProp("m_nForceUpgrades", 2, 4);
 
 		// One upgrade station is required for purchased upgrades to persist
-		this.BuildUpgradeStation({0.0, 0.0, 0.0});
+		Upgrades.Instance().BuildUpgradeStation({0.0, 0.0, 0.0});
 
 		// Delegate upgrades menu visbility to resupply locker touch events
-		this.HookUpgradesMenuToResupply();
+		Upgrades.Instance().HookUpgradesMenuToResupply();
 
 		return true;
 	}
@@ -170,13 +177,13 @@ methodmap UpgradesController < StringMap {
 	// lockers and builds an upgradestation. Those will persist, and in the event
 	// of a re-enable, they are guarded against subsequent calls for the current map
 	// TODO: Verify if changing the GameRules prop to 0 disables the menu
-	public bool Disable(bool silent = false) {
-		if (!this.Enabled) return false;
+	public static bool Disable(bool silent = false) {
+		if (!Upgrades.Instance().Enabled) return false;
 
 		// Set controller state to DISABLED and announce the change
 		if (!silent) PrintToChatAll("[RTU] %t", "RTU Disabled");
-		this.PlayRandom(SFX_UPGRADES_DISABLE);
-		this.State = UPGRADES_STATE_DISABLED_BY_RTU;
+		Upgrades.Instance().PlayRandom(SFX_UPGRADES_DISABLE);
+		Upgrades.Instance().State = UPGRADES_STATE_DISABLED_BY_RTU;
 
 		// MAGIC NUMBER: 0 disables upgrades (There may be an ENUM for this)
 		GameRules_SetProp("m_nForceUpgrades", 0, 4);
@@ -185,17 +192,17 @@ methodmap UpgradesController < StringMap {
 	}
 
 	// Call between rounds to clear player upgrades
-	public bool Reset(bool silent = false) {
-		if (!this.Enabled) return false;
+	public static bool Reset(bool silent = false) {
+		if (!Upgrades.Instance().Enabled) return false;
 
 		if (!silent) PrintToChatAll("[RTU] %t", "RTU Reset");
-		for (int i = 1; i <= MaxClients; i++) this.ResetPlayer(i);
+		for (int i = 1; i <= MaxClients; i++) Upgrades.ResetPlayer(i);
 
 		return true;
 	}
 
 	// Resets upgrades only. Currency reset via bank
-	public void ResetPlayer(int client) {
+	public static void ResetPlayer(int client) {
 		if (!IsClientInGame(client) || IsFakeClient(client)) return;
 
 		// Clear player upgrades

@@ -1,23 +1,23 @@
 /**
- * Rock The Upgrades: Accounts Controller (aka Bank)
+ * Rock The Upgrades: PlayerProfiles Controller (aka Bank)
  * TODO: description
  */
 
-#if defined _account_controller_included
+#if defined _playerProfile_controller_included
  #endinput
 #endif
-#define _account_controller_included
+#define _playerProfile_controller_included
 
 #pragma newdecls required
 
-#include "account"
+#include "player_profile"
 #include "shared"
 #include "team_bonus"
 #include "json/helpers/metastringmap"
 #include "bank/printer"
 #include "auth_keys.inc"
 
-ConVar g_Cvar_CurrencyStarting;   // Currency for new accounts before bonuses
+ConVar g_Cvar_CurrencyStarting;   // Currency for new playerProfiles before bonuses
 ConVar g_Cvar_CurrencyMultiplier; // Global multiplier for all currency gains
 ConVar g_Cvar_CurrencyLimit;      // Optionally limit earnable currency
 
@@ -35,9 +35,9 @@ static Bank g_Bank;
 
 /*
 	An Bank is a glorified MetaStringMap that maps SteamIDs (as
-	  accountKey) to Accounts. These keys fall back to client names if Steam Auth
+	  playerProfileKey) to PlayerProfiles. These keys fall back to client names if Steam Auth
 	  Servers are unreachable, and are restored once connectivity is restored
-	It handles client connection, account management, map resets, and supports
+	It handles client connection, playerProfile management, map resets, and supports
 
 */
 methodmap Bank < MetaStringMap {
@@ -72,8 +72,12 @@ methodmap Bank < MetaStringMap {
 		}
 	}
 
-	public void PrintAccount(int client) {
-		BankPrinter.PrintAccount(this, client);
+	public static void Restart() {
+		Bank.Instance().Bonuses.Clear();
+	}
+
+	public void PrintPlayerProfile(int client) {
+		BankPrinter.PrintPlayerProfile(this, client);
 	}
 
 	public void PrintToServer() {
@@ -104,40 +108,16 @@ methodmap Bank < MetaStringMap {
 		public set(ArrayList val) { this.Meta.SetHandle("bonuses", val); }
 	}
 
-	property TypedStringMap Accounts {
+	property TypedStringMap PlayerProfiles {
 		public get()          	  { return this.Data; }
 	}
 
-	/* CLIENT CONNECTION */
-
-	public void Connect(int client) {
-		// Maps client -> steamID (fallback: client name)
-		AuthKeys.Register(client);
-
-		// Create new accounts or reconnect existing ones
-		this.FindOrCreateAccount(client);
-	}
-
-	public void Disconnect(int client) {
-		this.SetConnection(client, false);
-	}
-
-	public void SetConnection(int client, bool connected) {
-		Account a; /*=*/ this.Fetch(a, client);
-		a.connected = connected;
-
-		// Reset spending but retain earned currency on disconnect
-		if (!connected) a.Reset(a.Earned());
-
-		// Save Changes
-		this.Data.SetArray(a.accountKey, a, sizeof(Account));
-	}
 
 	/* TRANSACTIONS */
 
 	public void Execute(float amount, int client, BankTransactionType txn) {
-		// Fetch account
-		Account a; /*=*/ this.Fetch(a, client);
+		// Fetch playerProfile
+		PlayerProfile playerProfile; /*=*/ PlayerProfiles.Find(client, playerProfile);
 
 		// Adjust all gains by global multiplier
 		amount *= this.Multiplier;
@@ -146,23 +126,22 @@ methodmap Bank < MetaStringMap {
 		switch (txn) {
 			// Currency gained from events or chat commands
 			case Bank_Deposit:
-				a.earned += amount;
+				playerProfile.earned += amount;
 			// Purchasing or refunding upgrades
 			case Bank_Withdraw:
-				a.classData[a.currentClass].spent += amount;
+				playerProfile.tfClassData[playerProfile.currentClass].spent += amount;
 			// Purchasing non-refundables
 			case Bank_Burn:
-				a.classData[a.currentClass].burnt += amount;
+				playerProfile.tfClassData[playerProfile.currentClass].burnt += amount;
 		}
 
 		// enforce currency limit (disabled by default)
-		a.earned = this.LimitCurrency(a.earned);
-
+		playerProfile.earned = this.LimitCurrency(playerProfile.earned);
 		// Save changes before syncing
 		// NOTE: metastringmap does not lift SetArray to Data - it points to Meta
-		this.Data.SetArray(a.accountKey, a, sizeof(Account));
+		this.Data.SetArray(playerProfile.key, playerProfile, sizeof(PlayerProfile));
 
-		// Match the client's currency to account balance
+		// Match the client's currency to playerProfile balance
 		this.Sync(client);
 	}
 
@@ -200,20 +179,20 @@ methodmap Bank < MetaStringMap {
 		this.AddBonus(amount, team);
 
 		// Iteration vars
-		Account a;
-		char accountKey[MAX_AUTHID_LENGTH];
+		PlayerProfile playerProfile;
+		char playerProfileKey[MAX_NAME_LENGTH];
 		StringMapSnapshot keys = this.Snapshot();
 
-		// Iterate Accounts
+		// Iterate PlayerProfiles
 		for(int i = 0; i < keys.Length; i++) {
-			// Grab Account Key (SteamID|Name)
-			keys.GetKey(i, accountKey, sizeof(accountKey));
+			// Grab PlayerProfile Key (SteamID|Name)
+			keys.GetKey(i, playerProfileKey, sizeof(playerProfileKey));
 
-			// Fetch account
-			this.Data.GetArray(accountKey, a, sizeof(Account));
+			// Fetch playerProfile
+			this.Data.GetArray(playerProfileKey, playerProfile, sizeof(PlayerProfile));
 
 			// Get paid if team matches optional filter
-			if (FilterTeam(a.currentTeam, team)) this.Deposit(amount, a.client);
+			if (FilterTeam(playerProfile.currentTeam, team)) this.Deposit(amount, playerProfile.client);
 		}
 	}
 
@@ -232,140 +211,64 @@ methodmap Bank < MetaStringMap {
 		}
 	}
 
-	/* ACCOUNT MANAGEMENT */
-
-	public void FindOrCreateAccount(int client) {
-		// Establish account key
-		char accountKey[MAX_AUTHID_LENGTH];
-		AuthKeys.Get(client, accountKey);
-
-		// Create new account or reconnect existing one
-		if (this.ContainsKey(accountKey)) this.SetConnection(client, true);
-		else this.CreateAccount(client, accountKey);
-	}
-
-	public void CreateAccount(int client, char accountKey[MAX_AUTHID_LENGTH]) {
-		// Buffer
-		Account account;
-
-		// Establish account
-		account.Init(client, accountKey);
-
-		// Save
-		this.Data.SetArray(accountKey, account, sizeof(Account));
-	}
-
-	public bool UpdateAccount(int client, TFClassType classType, TFTeam team) {
-		// Find account
-		Account account;
-		bool found = this.Fetch(account, client);
-		if (!found) return false;
-
-		// apply updates
-		account.currentClass = classType;
-		account.currentTeam = team;
-
-		// TODO: find a better place for this
-		if (!account.activated) account.Activate(this.StartingCurrency(team));
-
-		// Save changes
-		this.Data.SetArray(account.accountKey, account, sizeof(Account));
-		return true;
-	}
-
-	public bool Fetch(Account a, int client) {
-		char accountKey[MAX_AUTHID_LENGTH]
-		AuthKeys.Get(client, accountKey);
-
-		// Primary lookup by SteamID - should pass 99.9% of the time
-		if (this.Data.GetArray(accountKey, a, sizeof(Account))) return true;
-
-		// Fallback to PlayerName
-		char nameKey[MAX_AUTHID_LENGTH];
-		AuthKeys.Get(client, nameKey, AuthModePlayerName);
-
-		// Neither key exists - somewhat impossible
-		if (!this.Data.GetArray(nameKey, a, sizeof(Account))) return false;
-
-		// Auth servers are down - continue using PlayerName fallback
-		if (AuthKeys.Mode() == AuthModePlayerName) return true;
-
-		// Auth Servers restored - swap keys
-		this.Data.SetArray(accountKey, a, sizeof(Account));
-		this.Data.Remove(nameKey);
-
-		return true;
-	}
-
 	/* PLAYER MANAGEMENT */
 
-	public float Balance(int client) {
-		Account a; /*=*/ this.Fetch(a, client);
-		return a.Balance();
-	}
+	// public float Balance(int client) {
+	// 	PlayerProfile playerProfile;
+	// 	PlayerProfiles.Find(client, playerProfile);
+	// 	return playerProfile.Balance();
+	// }
 
-	public bool Sync(int clientID = -1) {
-		// Single client sync
-		if (clientID > 0) {
-			return this.SetClientCurrency(clientID, this.Balance(clientID));
-		}
+	// public bool Sync(int clientID = -1) {
+	// 	// Single client sync
+	// 	if (clientID > 0) {
+	// 		return this.SetClientCurrency(clientID, this.Balance(clientID));
+	// 	}
 
-		// Multi-client sync
-		for (int client = 1; client <= MaxClients; client++) {
-			if (!ValidClient(client)) continue;
+	// 	// Multi-client sync
+	// 	for (int client = 1; client <= MaxClients; client++) {
+	// 		if (!ValidClient(client)) continue;
 
-			if (!this.Sync(client)) return false;
-		}
+	// 		if (!this.Sync(client)) return false;
+	// 	}
 
-		return true;
-	}
+	// 	return true;
+	// }
 
-	public int Delta(int client) {
-		float realCurrency = this.GetClientCurrency(client);
-		float bankBalance = this.Balance(client);
+	// public int Delta(int client) {
+	// 	float realCurrency = this.GetClientCurrency(client);
+	// 	float bankBalance = this.Balance(client);
 
-		return RoundToNearest(bankBalance - realCurrency);
-	}
-	public bool ResolveDelta(int client) {
-		int delta = this.Delta(client);
-		if (delta == 0) return false;
+	// 	return RoundToNearest(bankBalance - realCurrency);
+	// }
+	// public bool ResolveDelta(int client) {
+	// 	int delta = this.Delta(client);
+	// 	if (delta == 0) return false;
 
-		this.Withdraw(float(delta), client);
+	// 	this.Withdraw(float(delta), client);
 
-		return true;
-	}
+	// 	return true;
+	// }
 
-	public float GetClientCurrency(int client) {
-		return ValidClient(client) ?
-			float(GetEntProp(client, Prop_Send, "m_nCurrency")) :
-			-1.0;
-	}
+	// public float GetClientCurrency(int client) {
+	// 	return ValidClient(client) ?
+	// 		float(GetEntProp(client, Prop_Send, "m_nCurrency")) :
+	// 		-1.0;
+	// }
 
-	public bool SetClientCurrency(int client, float amount) {
-		bool valid = ValidClient(client);
-		if (valid) SetEntProp(client, Prop_Send, "m_nCurrency", RoundToCeil(amount));
-		return valid;
-	}
-
-	public bool OnPlayerSpawn(int client, TFClassType classType, TFTeam team) {
-		// Update account
-		bool revert = this.UpdateAccount(client, classType, team);
-		if (!revert) this.Sync(client);
-
-		return revert;
-	}
-
-	public bool NeedsRevert(int client) {
-		Account a; /*=*/ this.Fetch(a, client);
-		return a.NeedsRevert();
-	}
+	// public bool SetClientCurrency(int client, float amount) {
+	// 	bool valid = ValidClient(client);
+	// 	if (valid) SetEntProp(client, Prop_Send, "m_nCurrency", RoundToCeil(amount));
+	// 	return valid;
+	// }
 
 	public void Revert(int client) {
-		Account a; /*=*/ this.Fetch(a, client);
-		a.Revert();
+		PlayerProfile playerProfile;
+		PlayerProfiles.Find(client, playerProfile);
+		playerProfile.Revert();
 
 		// Save changes
-		this.Data.SetArray(a.accountKey, a, sizeof(Account));
+		this.Data.SetArray(playerProfile.key, playerProfile, sizeof(PlayerProfile));
 		this.Sync(client);
 	}
 
@@ -404,36 +307,11 @@ methodmap Bank < MetaStringMap {
 	}
 
 	public void Wipe() {
-		// wipe accounts
+		// wipe playerProfiles
 		this.Clear();
 
 		// wipe acquisitions
 		this.Bonuses.Clear();
 		// this.Keys.Clear();
-	}
-
-	public void ResetAccounts() {
-		this.Bonuses.Clear();
-
-		// Iteration vars
-		StringMapSnapshot keys = this.Snapshot();
-		char accountKey[MAX_AUTHID_LENGTH];
-		Account account;
-
-		for (int i = 0; i < keys.Length; i++) {
-			// Write key
-			keys.GetKey(i, accountKey, sizeof(accountKey));
-
-			// Lookup account
-			if (!this.Data.GetArray(accountKey, account, sizeof(Account))) continue;
-
-			// Reset account
-			account.Reset(this.StartingCurrency(account.currentTeam));
-
-			// Save changes
-			this.Data.SetArray(accountKey, account, sizeof(Account));
-
-			if (account.connected) this.Sync(account.client);
-		}
 	}
 }
