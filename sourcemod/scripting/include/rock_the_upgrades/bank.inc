@@ -142,7 +142,7 @@ methodmap Bank < MetaStringMap {
 		this.Data.SetArray(playerProfile.key, playerProfile, sizeof(PlayerProfile));
 
 		// Match the client's currency to playerProfile balance
-		this.Sync(client);
+		playerProfile.SyncEntity();
 	}
 
 	public void Deposit(float amount, int client) {
@@ -269,7 +269,7 @@ methodmap Bank < MetaStringMap {
 
 		// Save changes
 		this.Data.SetArray(playerProfile.key, playerProfile, sizeof(PlayerProfile));
-		this.Sync(client);
+		playerProfile.SyncEntity();
 	}
 
 	/* STATE MANAGEMENT */

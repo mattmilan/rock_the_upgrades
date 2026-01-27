@@ -43,8 +43,8 @@ enum struct PocketUpgrades {
     // Open the upgrades menu. Closing the menu is out of scope and handled in-game
     // NOTE: leaves the m_bInUpgradeZone prop set to 1 - requires special handling,
     //       otherwise the menu will not reopen (except on every respawn)
-    bool Show(int client, char playerProfileKey[MAX_NAME_LENGTH]) {
-        if (!this.Showable(client, playerProfileKey)) return false;
+    bool Show(int client) {
+        if (!this.Showable(client)) return false;
 
         // m_bWasInZone may need to be reset, this is the first step towards that
         SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
@@ -56,11 +56,11 @@ enum struct PocketUpgrades {
     }
 
     // Several validations must pass prior to showing the menu
-    bool Showable(int client, char playerProfileKey[MAX_NAME_LENGTH]) {
+    bool Showable(int client) {
         return ValidClient(client)
             && !this.Disabled(client)
             && !this.Locked(client)
-            && !this.ClientLocked(client, playerProfileKey);
+            && !this.ClientLocked(client);
     }
 
     // Disabled by convar
@@ -81,7 +81,9 @@ enum struct PocketUpgrades {
     }
 
     // Disabled temporarily for specific player
-    bool ClientLocked(int client, char playerProfileKey[MAX_NAME_LENGTH]) {
+    bool ClientLocked(int client) {
+        char playerProfileKey[MAX_NAME_LENGTH];
+        AuthKeys.Get(client, playerProfileKey);
         int timeRemaining = OmniTimer.Get(playerProfileKey);
 
         if (timeRemaining <= 0) return false;

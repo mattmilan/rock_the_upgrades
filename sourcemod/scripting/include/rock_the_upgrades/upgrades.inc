@@ -8,6 +8,8 @@
 #endif
 #define _upgrades_included
 
+#include <sourcemod>
+#include <sdkhooks>
 #include "../tf2attributes.inc"
 
 // Enum representing the various states the upgrades system can be in
@@ -26,25 +28,6 @@ const int MAX_UPGRADES_STATE_NAME = 32;
 
 ConVar g_Cvar_MultiStageReset;
 
-// A random sound to play when upgrades are enabled
-static ArrayList SFX_UPGRADES_ENABLE;
-static char pathsForEnableSFX[][] = {
-	"mvm/mvm_bought_in.wav",
-	"vo/engineer_mvm_collect_credits01.mp3",
-	"vo/heavy_mvm_collect_credits01.mp3",
-	"vo/medic_mvm_collect_credits03.mp3",
-	"vo/medic_mvm_collect_credits04.mp3",
-	"vo/soldier_mvm_collect_credits01.mp3",
-	"vo/soldier_mvm_collect_credits02.mp3"
-};
-
-// A random sound to play when upgrades are disabled
-static ArrayList SFX_UPGRADES_DISABLE;
-static char pathsForDisableSFX[][] = {
-	"vo/announcer_sd_monkeynaut_end_crash01.mp3",
-	"vo/demoman_sf12_badmagic07.mp3",
-	"mvm/mvm_player_died.wav"
-};
 
 static Upgrades g_Upgrades;
 
@@ -67,63 +50,35 @@ methodmap Upgrades < StringMap {
 		g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
 
 		g_Upgrades = view_as<Upgrades>(new StringMap());
-
-		Upgrades.InitSFXArrays();
 	}
 
 	public static bool End() {
-		SFX_UPGRADES_ENABLE.Clear();
-		SFX_UPGRADES_DISABLE.Clear();
 		g_Upgrades.Close();
 		g_Upgrades = null;
 		return true;
 	}
 
-	// Enforce safe defaults
-	public static bool Restart() {
+	// OnMapStart
+	public static bool Start() {
+		if (g_Upgrades == null) Upgrades.Init();
+		// g_Upgrades
 
 		// Clear guards
-		Upgrades.Instance().Remove("ready");
-		Upgrades.Instance().Remove("hooked");
-		Upgrades.Instance().Remove("built");
+		g_Upgrades.Remove("ready");
+		g_Upgrades.Remove("hooked");
+		g_Upgrades.Remove("built");
 
 		// Fire guarded initializers
-		Upgrades.Instance().SetInitialUpgradesState();
-		Upgrades.Instance().PrecacheSFX();
+		g_Upgrades.SetInitialUpgradesState();
 
 		// Set guard
-		Upgrades.Instance().SetValue("ready", 1);
+		g_Upgrades.SetValue("ready", 1);
 		return true;
 	}
 
-	// Copy static string arrays into ArrayLists to facilitate random access
-	public static void InitSFXArrays() {
-		SFX_UPGRADES_ENABLE = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-		for (int i = 0; i < sizeof(pathsForEnableSFX); i++)
-			SFX_UPGRADES_ENABLE.PushString(pathsForEnableSFX[i]);
-
-		SFX_UPGRADES_DISABLE = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-		for (int i = 0; i < sizeof(pathsForDisableSFX); i++)
-			SFX_UPGRADES_DISABLE.PushString(pathsForDisableSFX[i]);
-	}
-
-	// Needs to be called every OnMapStart when asset precaching occurs
-	// TODO: Is this even required?
-	public void PrecacheSFX() {
-		if (Upgrades.Instance().Ready) return;
-
-		// Precache all sounds
-		for (int i = 0; i < SFX_UPGRADES_ENABLE.Length; i++) {
-			char sfx[PLATFORM_MAX_PATH];
-			SFX_UPGRADES_ENABLE.GetString(i, sfx, sizeof(sfx));
-			PrecacheSound(sfx, true);
-		}
-
-		for (int i = 0; i < SFX_UPGRADES_DISABLE.Length; i++) {
-			char sfx[PLATFORM_MAX_PATH];
-			SFX_UPGRADES_DISABLE.GetString(i, sfx, sizeof(sfx));
-			PrecacheSound(sfx, true);
-		}
+	public static bool Enabled() {
+		return g_Upgrades.State == UPGRADES_STATE_ENABLED_BY_MAP
+			|| g_Upgrades.State == UPGRADES_STATE_ENABLED_BY_RTU;
 	}
 
 	// Sets the initial upgrades state based on map settings
@@ -131,7 +86,7 @@ methodmap Upgrades < StringMap {
 	// 		INITIAL: Upgrades have not been enabled by any means
 	// 		ENABLED_BY_MAP: Upgrades are already enabled by the map
 	public bool SetInitialUpgradesState() {
-		if (this.Ready) return false;
+		if (this.ready) return false;
 
 		this.State = this.CheckInitialUpgradesState();
 		return true;
@@ -146,29 +101,19 @@ methodmap Upgrades < StringMap {
 			: UPGRADES_STATE_INITIAL;
 	}
 
-	public static bool Enable(VoteResult result) {
-		if (Upgrades.Instance().Enabled) return false;
+	public static bool Enable() {
+		if (g_Upgrades.enabled) return false;
 
-		switch (result) {
-			case VoteResult_PassedByAdmin:
-				PrintToChatAll("[RTU] %t", "RTU EnabledByAdmin");
-			case VoteResult_PassedByVote:
-				PrintToChatAll("[RTU] %t", "RTU EnabledByVote");
-			default:
-				PrintToChatAll("[RTU] %t", "RTU AutoEnable");
-		}
-		// Set controller state to ENABLED and announce the change
-		Upgrades.Instance().PlayRandom(SFX_UPGRADES_ENABLE);
-		Upgrades.Instance().State = UPGRADES_STATE_ENABLED_BY_RTU;
+		g_Upgrades.State = UPGRADES_STATE_ENABLED_BY_RTU;
 
 		// MAGIC NUMBER: 2 enables upgrades (There may be an ENUM for this)
 		GameRules_SetProp("m_nForceUpgrades", 2, 4);
 
 		// One upgrade station is required for purchased upgrades to persist
-		Upgrades.Instance().BuildUpgradeStation({0.0, 0.0, 0.0});
+		g_Upgrades.BuildUpgradeStation({0.0, 0.0, 0.0});
 
 		// Delegate upgrades menu visbility to resupply locker touch events
-		Upgrades.Instance().HookUpgradesMenuToResupply();
+		g_Upgrades.HookUpgradesMenuToResupply();
 
 		return true;
 	}
@@ -178,12 +123,9 @@ methodmap Upgrades < StringMap {
 	// of a re-enable, they are guarded against subsequent calls for the current map
 	// TODO: Verify if changing the GameRules prop to 0 disables the menu
 	public static bool Disable(bool silent = false) {
-		if (!Upgrades.Instance().Enabled) return false;
+		if (!g_Upgrades.enabled) return false;
 
-		// Set controller state to DISABLED and announce the change
-		if (!silent) PrintToChatAll("[RTU] %t", "RTU Disabled");
-		Upgrades.Instance().PlayRandom(SFX_UPGRADES_DISABLE);
-		Upgrades.Instance().State = UPGRADES_STATE_DISABLED_BY_RTU;
+		g_Upgrades.State = UPGRADES_STATE_DISABLED_BY_RTU;
 
 		// MAGIC NUMBER: 0 disables upgrades (There may be an ENUM for this)
 		GameRules_SetProp("m_nForceUpgrades", 0, 4);
@@ -193,7 +135,7 @@ methodmap Upgrades < StringMap {
 
 	// Call between rounds to clear player upgrades
 	public static bool Reset(bool silent = false) {
-		if (!Upgrades.Instance().Enabled) return false;
+		if (!g_Upgrades.enabled) return false;
 
 		if (!silent) PrintToChatAll("[RTU] %t", "RTU Reset");
 		for (int i = 1; i <= MaxClients; i++) Upgrades.ResetPlayer(i);
@@ -226,7 +168,7 @@ methodmap Upgrades < StringMap {
 	// Approaching/leaving resupply lockers will show/hide the upgrades menu
 	// TODO: Solve for maps that have no `func_regenerate` entities
 	public void HookUpgradesMenuToResupply() {
-		if (this.Hooked) {
+		if (this.hooked) {
 			PrintToServer("*****Lockers already hooked");
 			return;
 		}
@@ -268,16 +210,9 @@ methodmap Upgrades < StringMap {
 		return FindEntityByClassname(-1, "func_upgradestation") != -1;
 	}
 
-	// Accompany state changes with appropriate SFX
-	public void PlayRandom(ArrayList soundArray) {
-		int rand = GetRandomInt(0, soundArray.Length - 1)
-		char sound[PLATFORM_MAX_PATH];
-		soundArray.GetString(rand, sound, sizeof(sound));
-		EmitSoundToAll(sound);
-	}
 
 	// Returns true if map-enabled or plugin-enabled, but does not distinguish
-	property bool Enabled {
+	property bool enabled {
 		public get() {
 			return this.State == UPGRADES_STATE_ENABLED_BY_MAP
 				|| this.State == UPGRADES_STATE_ENABLED_BY_RTU;
@@ -286,13 +221,13 @@ methodmap Upgrades < StringMap {
 	}
 
 	// Used to prevent re-initialization
-	property bool Ready {
+	property bool ready {
 		public get() { return this.ContainsKey("ready"); }
 		// private set during `OnMapStarted`
 	}
 
 	// Whether resupply lockers have been hooked to show the upgrades menu
-	property bool Hooked {
+	property bool hooked {
 		public get() {
 			int hooked;
 			this.GetValue("hooked", hooked);
@@ -302,7 +237,7 @@ methodmap Upgrades < StringMap {
 	}
 
 	// Whether a `func_upgradestation` has been added to the current map
-	property bool Built {
+	property bool built {
 		public get() {
 			int built;
 			this.GetValue("built", built);
@@ -315,7 +250,7 @@ methodmap Upgrades < StringMap {
 	// round start. Think of maps like cp_dustbowl that are 3 rounds in one map cycle
 	property bool ResetOnRoundStart {
 		public get() {
-			return this.Enabled && g_Cvar_MultiStageReset.IntValue == 1;
+			return this.enabled && g_Cvar_MultiStageReset.IntValue == 1;
 		}
 	}
 

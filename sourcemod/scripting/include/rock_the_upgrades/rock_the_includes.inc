@@ -39,3 +39,4 @@
 
 #include "player_profile"
 
+#include "sfx"

@@ -7,6 +7,10 @@
 		"en"			"Upgrades are already enabled!"
 	}
 
+	"RTU Already Passed" {
+	 	"en"			"The vote has already passed."
+	}
+
 	"RTU Already Voted" {
  		"#format"		"{1:d},{2:d}"
 	 	"en"			"You have already voted to enable upgrades. ({1} votes, {2} required)"

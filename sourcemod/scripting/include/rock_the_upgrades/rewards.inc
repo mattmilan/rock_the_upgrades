@@ -150,7 +150,10 @@ methodmap Reward  {
 	// Dying may incur a penalty (disabled by default)
 	// Returns a positive value, should be inverted when called
 	public static float DeathPenalty(int victim) {
-		return Bank.Instance().Balance(victim)
+		PlayerProfile p;
+		PlayerProfiles.Find(victim, p);
+
+		return p.Balance()
 			* g_Cvar_CurrencyDeathTax.FloatValue;
 	}
 }
