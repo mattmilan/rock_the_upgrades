@@ -96,6 +96,9 @@
 // Enable/Disable upgrade system, and easily reset entity upgrades
 #include <rock_the_upgrades/upgrades_controller>
 
+// Parse and apply custom upgrades files
+#include <rock_the_upgrades/custom_upgrades>
+
 // Manages configurable currency gains and losses across various events
 #include <rock_the_upgrades/currency_controller>
 
@@ -183,6 +186,8 @@ public void OnPluginEnd() {
 }
 
 public void OnMapStart() {
+	FindAndAddUpgradesFilesToDownloadsTable();
+	ApplyCustomUpgradesFile();
  	PlayerCount = 0;
 	WaitingForPlayers = true;
 	RevengeTracker.Clear(); // from currency_controller
