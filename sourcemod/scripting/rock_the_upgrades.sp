@@ -93,6 +93,8 @@
 // Facilitates the removal of upgrades during resets
 // #include <tf2attributes>
 
+#include <morecolors>
+
 // Enable/Disable upgrade system, and easily reset entity upgrades
 #include <rock_the_upgrades/upgrades_controller>
 
@@ -111,6 +113,7 @@
 #pragma semicolon 1
 #pragma newdecls required
 
+#define RTU_BRAND "{yellow}[{gold}RTU{yellow}]{default}"
 /**
  * t.2 Plugin Info
  * ===========================================================================
@@ -269,8 +272,8 @@ void HookEvents() {
 void RegisterCommands() {
 	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
 	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
+	RegConsoleCmd("rtu_pay", Command_RTUPay, "Send currency to other players.");
 	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
-	RegAdminCmd("rtu_pay", Command_RTUPay, ADMFLAG_GENERIC, "Debug: Pay 100 currency to the caller");
 	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
 	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");
 	RegAdminCmd("rtu_reset", Command_RTUReset, ADMFLAG_GENERIC, "Remove all upgrades and currency but leave the upgrade system enabled.");
@@ -311,8 +314,6 @@ Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
 	// Validate
 	if (!ValidPlayer(client, classType, team)) return Plugin_Continue;
 
-	PrintToServer("[RTU] <Player Spawn> [Valid Player!]");
-
 	// Update or create account and sync balance
 	bool revert = bank.OnPlayerSpawn(client, classType, team);
 
@@ -323,8 +324,6 @@ Action Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast) {
 }
 
 Action Timer_RevertClient(Handle timer, any client) {
-	PrintToServer("[RTU] <Revert Client>");
-
 	// Very important for these two events to happen together
 	upgrades.ResetPlayer(client);
 	bank.Revert(client);
@@ -338,6 +337,7 @@ Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadca
 		bank.ResetAccounts();
 		upgrades.Reset(); // also attempts to force-close upgrade menus
 		pocket.Unlock();
+		CPrintToChatAll("%s %t", RTU_BRAND, "RTU Reset");
 	}
 
 	return Plugin_Continue;
@@ -378,25 +378,32 @@ Action Command_RTU(int client, int args) {
 
 // Player Command - show account data for all of client's classes
 Action Command_RTUAccount(int client, int args) {
-	if (client > 0) bank.PrintAccount(client);
-	else PrintToServer("[RTU] %t", "Command `rtu_account` can only be used by clients.");
+	if (client > 0) {
+		bank.PrintAccount(client);
+		CPrintToChat(client, "%s Account Details printed to console.", RTU_BRAND);
+	}
+	else PrintToServer("[RTU] Command `rtu_account` can only be used by clients.");
 
 	return Plugin_Handled;
 }
 
 // Admin Command - show account data for all clients' current class
 Action Command_RTUBanks(int client, int args) {
-	bank.PrintToServer();
+	bank.PrintToConsole(client);
+
+	CPrintToChat(client, "%s %s", RTU_BRAND, "Bank Data printed to console.");
+
 	return Plugin_Handled;
 }
 
 // Admin command - skip voting and enable immediately
 Action Command_RTUEnable(int client, int args) {
 	if (upgrades.Enabled) {
-		ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled");
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Already Enabled");
 	} else {
 		bank.Sync();
-		upgrades.Enable(); // reports enable to chat
+		upgrades.Enable();
+		CPrintToChatAll("%s %t", RTU_BRAND, "RTU Enabled");
 	}
 
 	return Plugin_Handled;
@@ -405,12 +412,13 @@ Action Command_RTUEnable(int client, int args) {
 // Admin command - disable immediately
 // TODO: Determine and support cases where we would not want to reset (doubhtful)
 Action Command_RTUDisable(int client, int args) {
-	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
+	if (!upgrades.Enabled) { CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Not Enabled"); }
 	else {
 		Votes.Clear();
 		bank.ResetAccounts();
-		upgrades.Reset(.silent = true);
-		upgrades.Disable(); // reports disable to chat
+		upgrades.Reset();
+		upgrades.Disable();
+		CPrintToChatAll("%s %t", RTU_BRAND, "RTU Disabled");
 	}
 
 	return Plugin_Handled;
@@ -418,46 +426,56 @@ Action Command_RTUDisable(int client, int args) {
 
 // Admin command - revert all gains without disabling the upgrade system
 Action Command_RTUReset(int client, int args) {
-	if (!upgrades.Enabled) { ReplyToCommand(client, "[RTU] %t", "RTU Not Enabled"); }
+	if (!upgrades.Enabled) { CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Not Enabled"); }
 	else {
 		bank.ResetAccounts();
-		upgrades.Reset(); // reports reset to chat
+		upgrades.Reset();
+		CPrintToChatAll("%s %t", RTU_BRAND, "RTU Reset");
 	}
 
 	return Plugin_Handled;
 }
 
+// MAGIC NUMBER: 100 as a minimum to discourage spam. 100 was the cost of the cheapest upgrade during development.
+// MAGIC NUMBER: 30,000 is far beyond anything players earn during 60-minute rounds, and close to the netprop max value
+// TODO: Convars for the above limits
 Action Command_RTUPay(int client, int args) {
-	// Show usage if no args provided
-	if (args == 0) {
-		ReplyToCommand(client, "[RTU] Usage: rtu_pay <amount> <optional|all|player>");
-		return Plugin_Handled;
-	}
+	if (!upgrades.Enabled) { CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Not Enabled"); }
 
-	// Determine amount
+	// Fetch client name for reporting, with a fallback of "The Server"
+	char clientName[MAX_NAME_LENGTH]; strcopy(clientName, sizeof(clientName), "The Server");
+	if (client > 0) GetClientName(client, clientName, sizeof(clientName));
+
+	// Buffer for reporting target name, once determined
+	char targetName[MAX_NAME_LENGTH];
+
+	// Admins bypass the funds check because they grant currency rather than pay it
+	bool checkFunds = !GetUserAdmin(client);
+
+	// Attempt to parse args a bit early to keep the conditional clean
 	float amount = GetCmdArgFloat(1);
-
-	// Validate amount
-	if (amount < 1) {
-		ReplyToCommand(client, "[RTU] Invalid Amount %f", amount);
-		return Plugin_Handled;
-	}
-
-	// Determine target
 	char target[MAX_NAME_LENGTH]; GetCmdArg(2, target, MAX_NAME_LENGTH);
 
-	// Pay self if no target specified
-	if (!target[0] && client > 0) {
-		bank.Deposit(amount, client);
-		ReplyToCommand(client, "[RTU] Paid %f to yourself", amount);
-	} else if (!bank.DepositTarget(target, amount, .replyTo=client)) {
-		ReplyToCommand(client, "[RTU] Could not find player %s", target);
+	// Perform several validations. If they pass, attempt and report the result
+	if (args == 0) {
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Pay Usage");
+	} else if (amount < 100.0 || amount > 30000.0) {
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Pay Amount Invalid", RoundToCeil(amount));
+	} else if (checkFunds && amount > bank.Earned(client)) {
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Pay Insufficient Funds");
+	} else if (!target[0]) {
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Pay Missing Target");
+	} else if (!bank.DepositTarget(target, amount, client, targetName)) {
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Pay Invalid Target", target);
 	} else {
-		ReplyToCommand(client, "[RTU] Command `rtu_pay` cannot be called from server without specifying a target");
+		// NOTE: The DepositTarget method will print to center on success
+		//CPrintToChatAll("%s %t", RTU_BRAND, "RTU Pay Success", clientName, RoundToCeil(amount), targetName);
+		if (checkFunds) bank.Deposit(-amount, client);
 	}
 
 	return Plugin_Handled;
 }
+
 /**
  * t.7 Voting
  * =========================================================================
@@ -482,7 +500,7 @@ void RemoveVote(int client) {
 void ReportVote(int client) {
 	char requestedBy[MAX_NAME_LENGTH];
 	GetClientName(client, requestedBy, sizeof(requestedBy));
-	PrintToChatAll("[RTU] %t", "RTU Requested", requestedBy, Votes.Length, VotesNeeded());
+	CPrintToChatAll("%s %t", RTU_BRAND, "RTU Requested", requestedBy, Votes.Length, VotesNeeded());
 }
 
 // Enable upgrades and award starting currency if vote passes
@@ -501,6 +519,7 @@ void CountVotes() {
 
 	upgrades.Enable();
 	bank.Sync();
+	CPrintToChatAll("%s %t", RTU_BRAND, "RTU Enabled");
 }
 
 // Get required number of votes from a percentage of connected player count. Ensure a minimum of 1 to prevent unintended activation
@@ -513,19 +532,19 @@ int VotesNeeded() {
 bool VotePossible(int client) {
 	// Too soon to vote
 	if (WaitingForPlayers) {
-		ReplyToCommand(client, "[RTU] %t", "RTU Not Allowed");
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Not Allowed");
 		return false;
 	}
 
 	// No need to vote
 	if (upgrades.Enabled) {
-		ReplyToCommand(client, "[RTU] %t", "RTU Already Enabled");
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Already Enabled");
 		return false;
 	}
 
 	// Already voted
 	if (Votes.FindValue(client) >= 0) {
-		ReplyToCommand(client, "[RTU] %t", "RTU Already Voted", Votes.Length, VotesNeeded());
+		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Already Voted", Votes.Length, VotesNeeded());
 		return false;
 	}
 
@@ -577,9 +596,9 @@ void AttemptAutoEnable(){
 	if (PlayerCount < g_Cvar_AutoEnableThreshold.IntValue) return;
 	if (upgrades.Enabled) return;
 
-	PrintToChatAll("[RTU] %t", "RTU AutoEnable");
+	CPrintToChatAll("%s %t", RTU_BRAND, "RTU AutoEnable");
 	bank.Sync();
-	upgrades.Enable(.silent=true);
+	upgrades.Enable();
 }
 
 void HandleLateLoad() {

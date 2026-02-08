@@ -137,11 +137,10 @@ methodmap UpgradesController < StringMap {
 			: UPGRADES_STATE_INITIAL;
 	}
 
-	public bool Enable(bool silent = false) {
+	public bool Enable() {
 		if (this.Enabled) return false;
 
 		// Set controller state to ENABLED and announce the change
-		if (!silent) PrintToChatAll("[RTU] %t", "RTU Enabled");
 		this.PlayRandom(SFX_UPGRADES_ENABLE);
 		this.State = UPGRADES_STATE_ENABLED_BY_RTU;
 
@@ -161,11 +160,10 @@ methodmap UpgradesController < StringMap {
 	// lockers and builds an upgradestation. Those will persist, and in the event
 	// of a re-enable, they are guarded against subsequent calls for the current map
 	// TODO: Verify if changing the GameRules prop to 0 disables the menu
-	public bool Disable(bool silent = false) {
+	public bool Disable() {
 		if (!this.Enabled) return false;
 
-		// Set controller state to DISABLED and announce the change
-		if (!silent) PrintToChatAll("[RTU] %t", "RTU Disabled");
+		// Set controller state to DISABLED
 		this.PlayRandom(SFX_UPGRADES_DISABLE);
 		this.State = UPGRADES_STATE_DISABLED_BY_RTU;
 
@@ -176,10 +174,9 @@ methodmap UpgradesController < StringMap {
 	}
 
 	// Call between rounds to clear player upgrades
-	public bool Reset(bool silent = false) {
+	public bool Reset() {
 		if (!this.Enabled) return false;
 
-		if (!silent) PrintToChatAll("[RTU] %t", "RTU Reset");
 		for (int i = 1; i <= MaxClients; i++) this.ResetPlayer(i);
 
 		return true;
@@ -213,11 +210,7 @@ methodmap UpgradesController < StringMap {
 	// Approaching/leaving resupply lockers will show/hide the upgrades menu
 	// TODO: Solve for maps that have no `func_regenerate` entities
 	public void HookUpgradesMenuToResupply() {
-		if (this.Hooked) {
-			PrintToServer("*****Lockers already hooked");
-			return;
-		}
-		PrintToServer("*****Hooking Lockers");
+		if (this.Hooked) return;
 
 		this.SetValue("hooked", 1);
 
@@ -236,10 +229,7 @@ methodmap UpgradesController < StringMap {
 
 		this.SetValue("built", 1);
 
-		if (this.UpgradeStationExists()) {
-			PrintToServer("[RTU][UpgradesController] Upgrade station already exists, skipping build.");
-			return;
-		}
+		if (this.UpgradeStationExists()) return;
 
 		// Create, spawn, and position the upgrade station (position is arbitrary)
 		int funcUpgrade = CreateEntityByName("func_upgradestation");
@@ -364,25 +354,19 @@ methodmap UpgradesController < StringMap {
 // Without a timer, an internal variable can't observe the change
 // For more info search the TF2 source code for `m_bWasInZone`
 void OnRTUUpgradeTriggerStartTouchPost(int trigger, int client) {
-
 	if (!ValidClient(client)) return;
-	PrintToServer("[RTU] StartTouch Close %d", client);
 
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	CreateTimer(0.1, Timer_ShowRTUUpgradesMenu, client);
 }
 
 void OnRTUUpgradeTriggerEndTouchPost(int trigger, int client) {
-	PrintToServer("[RTU] EndTouch Close %d", client);
-
 	if (!ValidClient(client)) return;
 
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 }
 
 Action Timer_ShowRTUUpgradesMenu(Handle timer, int client) {
-	PrintToServer("[RTU] StartTouch Open %d", client);
-	// PrintToServer("[RTU] Timer_ShowRTUUpgradesMenu fired for client %d", client);
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 1);
 
 	return Plugin_Handled;

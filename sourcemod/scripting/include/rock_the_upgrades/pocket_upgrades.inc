@@ -4,6 +4,7 @@
  */
 
 // applies to both global lock message and client-specific locks
+// TODO: CReplyToCommand, RTU_BRAND and translations
 
 enum struct PocketUpgrades {
 
