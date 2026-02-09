@@ -6,7 +6,7 @@
 #pragma newdecls required
 #include <rock_the_upgrades/account>
 #include <rock_the_upgrades/bank_config>
-
+#include <regex>
 // TODO: isolate via longer name
 enum BANK_TRANSACTION {
 	BANK_BANK_BALANCE,
@@ -22,6 +22,10 @@ ConVar g_Cvar_CurrencyLimit;
 
 // Invoke during `OnMapStart`
 void InitBankConvars() {
+	//TODO: move these
+	PrecacheSound("vo/mvm_bonus01.mp3", true);
+	PrecacheSound("vo/halloween_merasmus/hall2015_reward_01.mp3", true);
+
 	// Starting currency
 	g_Cvar_CurrencyStarting = CreateConVar("rtu_currency_starting", "250.0", "Starting amount of currency for players. Negative values incur a debt. Don't blame me - blame Merasmus. [250, -inf..inf]", 0, false, 0.0, false);
 
@@ -171,6 +175,9 @@ methodmap Bank < StringMap  {
 	// Account Lookup via Client -> Account Key(SteamID|Name) -> Account
 	// Follow with `SetArray` to save changes
 	public bool Fetch(int client, Account a) {
+		// Sometimes we get a -1 from DepositTarget
+		if (client <= 0 || client > MaxClients) return false;
+
 		// Buffer
 		char keyName[MAX_AUTHID_LENGTH];
 
@@ -200,8 +207,7 @@ methodmap Bank < StringMap  {
 	// Marks an account as connected or disconnected (for visibility)
 	// Disconnected accounts have their spending reset (retains earned currency)
 	public void SetConnection(int client, bool connected) {
-		Account a;
-		this.Fetch(client, a);
+		Account a; if (!this.Fetch(client, a)) return;
 		a.connected = connected;
 
 		// Reset spending but retain earned currency on disconnect
@@ -228,120 +234,163 @@ methodmap Bank < StringMap  {
 		return a.NeedsRevert();
 	}
 
-	// Centralizes logic which had been duplicated among transaction-related methods (Deposit, Withdrawal, etc)
-	// NOTE: Attempted and failed to execute callback functions defined within this methodmap
-	public void Transaction(float amount, int client, BANK_TRANSACTION transaction) {
-		// Fetch account
-		Account a; this.Fetch(client, a);
-
-		// Adjust all gains by global multiplier
+	// Always returns true; saves us a few lines.
+	public bool Transaction(float amount, Account account, BANK_TRANSACTION transaction) {
+		// Apply global multiplier (default 1.0)
 		amount *= g_Cvar_CurrencyMultiplier.FloatValue;
 
-		// Apply amount to the correct field
 		switch (transaction) {
 			// Currency gained from events or chat commands
 			case BANK_DEPOSIT:
-				a.earned += amount;
+				account.earned += amount;
 			// Purchasing or refunding upgrades
 			case BANK_WITHDRAW:
-				a.classData[a.currentClass].spent += amount;
+				account.classData[account.currentClass].spent += amount;
 			// Purchasing non-refundables
 			case BANK_BURN:
-				a.classData[a.currentClass].burnt += amount;
+				account.classData[account.currentClass].burnt += amount;
 		}
 
-		// enforce currency limit (disabled by default)
-		a.earned = this.LimitCurrency(a.earned);
+		// Enforce currency limit (disabled by default)
+		account.earned = this.LimitCurrency(account.earned);
 
-		// Save changes before syncing
-		this.SetArray(a.accountKey, a, sizeof(Account));
+		// Save changes before syncing. WARN:
+		this.SetArray(account.accountKey, account, sizeof(Account));
 
-		// Match the client's currency to account balance
-		this.Sync(client);
+		// Skip disconnected clients as there is no netprop to sync
+		if (account.connected) this.Sync(account.client);
+
+		return true;
 	}
 
 	// Helper method for readability
-	public void Deposit(float amount, int client) {
-		this.Transaction(amount, client, BANK_DEPOSIT);
+	public bool Deposit(float amount, int client) {
+		Account account; if (!this.Fetch(client, account)) return false;
+
+		return this.Transaction(amount, account, BANK_DEPOSIT);
 	}
 
 	// Helper method for readability
-	public void Withdraw(float amount, int client) {
-		this.Transaction(amount, client, BANK_WITHDRAW);
+	public bool Withdraw(float amount, int client) {
+		Account account; if (!this.Fetch(client, account)) return false;
+
+		return this.Transaction(amount, account, BANK_WITHDRAW);
 	}
 
 	// Helper method for readability
-	public void Burn(float amount, int client) {
-		this.Transaction(amount, client, BANK_BURN);
+	public bool Burn(float amount, int client) {
+		Account account; if (!this.Fetch(client, account)) return false;
+
+		return this.Transaction(amount, account, BANK_BURN);
 	}
 
 	// Call when refunding upgrades
-	public void Refund(float amount, int client) {
-		this.Withdraw(-amount, client);
+	public bool Refund(float amount, int client) {
+		return this.Withdraw(-amount, client);
 	}
 
 	// Call to remove penalties or restore unrefundable currency (canteen purchases)
-	public void Forgive(float amount, int client) {
-		this.Burn(-amount, client);
+	public bool Forgive(float amount, int client) {
+		return this.Burn(-amount, client);
 	}
 
 	public void Revert(int client) {
-		Account a;
-		this.Fetch(client, a);
-		a.Revert();
-		this.SetArray(a.accountKey, a, sizeof(Account));
+		Account account; if (!this.Fetch(client, account)) return;
+		account.Revert();
+		this.SetArray(account.accountKey, account, sizeof(Account));
 		this.Sync(client);
 	}
 
 	// Deposit money to all accounts whether connected or not. Optional team filter
-	public void DepositAll(float amount, TFTeam team=TFTeam_Unassigned) {
-		PrintToServer("[RTU][BANK] Depositing %.2f to all accounts", amount);
-		// Late joiners can benefit from these deposits
+	// Always returns true; reduces LoC
+	public bool DepositAll(float amount, TFTeam team=TFTeam_Unassigned) {
+
+		// Increase late-join starting currency
 		BankConfig config;
 		this.GetArray("config", config, sizeof(config));
 		config.AddBonusStartingCurrency(amount, team);
 		this.SetArray("config", config, sizeof(config));
 
-		// Iteration vars (assumes keys are all the same size - should be)
+		// Prepare iteration
 		Account a;
-		int clientID;
 		char accountKey[MAX_AUTHID_LENGTH];
-
-		// Iterate over all accounts
 		StringMapSnapshot keys = this.Snapshot();
+
+		// Iterate accounts
 		for(int i = 0; i < keys.Length; i++) {
-			// Grab Account Key (SteamID|Name)
+			// Write key to buffer
 			keys.GetKey(i, accountKey, MAX_AUTHID_LENGTH);
+
+			// TODO: convert bank to MetaStringMap to get config out of here
 			if (strcmp(accountKey, "config") == 0) continue;
 
-			// Fetch account
+			// Write account to buffer
 			this.GetArray(accountKey, a, sizeof(Account));
 
-			clientID = a.client;
-
 			// Optional team filter
-			if (!this.ValidTeam(clientID, team)) continue;
+			if (!this.ValidTeam(a.currentTeam, team)) continue;
 
 			// Get paid
-			this.Deposit(amount, clientID);
-		}
-	}
-
-	// Used by an admin command - supports "all", "red", "blu", or a specific player
-	public bool DepositTarget(char target[MAX_NAME_LENGTH], float amount, int replyTo=0) {
-		if (StrEqual(target, "all", false)) {
-			this.DepositAll(amount);
-		} else if (StrEqual(target, "red", false)) {
-			this.DepositAll(amount, .team=TFTeam_Red);
-		} else if (StrEqual(target, "blu", false) || StrEqual(target, "blue", false)) {
-			this.DepositAll(amount, .team=TFTeam_Blue);
-		} else {
-			int targetClientId = FindTarget(replyTo, target, true);
-			if (targetClientId > 0) this.Deposit(amount, targetClientId);
-			else return false;
+			this.Transaction(amount, a, BANK_DEPOSIT);
 		}
 
 		return true;
+	}
+
+	// Used by rtu_pay chat command. DepositAll restricted to Admins
+	public bool DepositTarget(char target[MAX_NAME_LENGTH], float amount, int client, char targetName[MAX_NAME_LENGTH]) {
+		// Identify potential target(s)
+		TFTeam targetTeam = this.TeamFromTarget(target);
+		int targetClient = 0;
+
+
+		// Determine which target to use
+		bool admin = client == 0 || GetUserAdmin(client);
+		bool depositAll = admin && targetTeam != TFTeam_Spectator;
+
+		if (!depositAll) targetClient = FindTarget(client, target, true);
+
+		// Edge case - non-admins cannot pay themselves
+		if (!admin && targetClient == client) return false;
+
+		// Determine target name and send upstream for reporting
+		if (depositAll) {
+			strcopy(targetName, MAX_NAME_LENGTH, target);
+		} else if (targetClient > 0) {
+			GetClientName(targetClient, targetName, MAX_NAME_LENGTH);
+		}
+
+		// Execute the chosen deposit strategy
+		bool success = depositAll ?
+			this.DepositAll(amount, targetTeam) :
+			this.Deposit(amount, targetClient);
+
+		char clientName[MAX_NAME_LENGTH];
+		GetClientName(client, clientName, MAX_NAME_LENGTH);
+
+		if (success) {
+			if (depositAll) {
+				// TODO: this should emit only to the proper team if it's filtered as such
+				EmitSoundToAll("vo/mvm_bonus01.mp3");
+				PrintCenterTextAll("%s has granted %d bonus currency to everyone!", clientName, RoundToCeil(amount));
+			} else {
+				EmitSoundToClient(targetClient, "vo/halloween_merasmus/hall2015_reward_01.mp3");
+				PrintCenterText(targetClient, "%s has given you %d currency!", clientName, RoundToCeil(amount));
+				// or mvm/mvm_money_pickup.wav
+				// or vo/pauling/plng_contract_complete_allclass_09.mp3 "here you go"
+			}
+		}
+
+		return success;
+	}
+
+	// TODO: move to shared helpers
+	public TFTeam TeamFromTarget(char target[MAX_NAME_LENGTH]) {
+			 if (StrEqual(target, "all",  false)) return TFTeam_Unassigned;
+		else if (StrEqual(target, "blu",  false)) return TFTeam_Blue;
+		else if (StrEqual(target, "blue", false)) return TFTeam_Blue;
+		else if (StrEqual(target, "red",  false)) return TFTeam_Red;
+		else 									  return TFTeam_Spectator;
 	}
 
 	// Limit maximum earnable currency (disabled by default)
@@ -359,6 +408,12 @@ methodmap Bank < StringMap  {
 		Account a;
 		this.Fetch(client, a);
 		return a.Balance();
+	}
+
+	public float Earned(int client) {
+		Account a;
+		this.Fetch(client, a);
+		return a.Earned();
 	}
 
 	// Starting currency before bonuses
@@ -464,23 +519,24 @@ methodmap Bank < StringMap  {
 	}
 
 	// Debug. Print all accounts in a table. Optional client filter
-	public void PrintToServer() {
+	public void PrintToConsole(int client) {
 		if (this.Size == 0) {
-			PrintToServer("[RTU][Bank] No accounts to display.");
+			PrintToConsole(client, "[RTU][Bank] No accounts to display.");
 			return;
 		}
 
-		PrintToServer("=================================================================================");
-		PrintToServer("[RTU][Bank] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.StartingCurrency(TFTeam_Red), this.StartingCurrency(TFTeam_Blue));
-		PrintToServer("---------------------------------------------------------------------------------");
-		PrintToServer("Account Key           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
-		PrintToServer("---------------------------------------------------------------------------------");
-		this.PrintAccounts();
-		PrintToServer("=================================================================================");
+		PrintToConsole(client, "=================================================================================");
+		PrintToConsole(client, "[RTU][Bank] Accounts [BONUS RED:%.2f] [BONUS BLU:%.2f]", this.StartingCurrency(TFTeam_Red), this.StartingCurrency(TFTeam_Blue));
+		PrintToConsole(client, "---------------------------------------------------------------------------------");
+		PrintToConsole(client, "Account Key           | Client  | Connected? |  Class  |  Earnt  |  Spent  |  Burnt  | Balance ");
+		PrintToConsole(client, "---------------------------------------------------------------------------------");
+		if (this.Size == 0) PrintToConsole(client, "[RTU][Bank] No accounts to display.");
+		else this.PrintAccounts(client);
+		PrintToConsole(client, "=================================================================================");
 	}
 
 	// Debug. Print the account identified by client. -1 prints all accounts.
-	public void PrintAccounts() {
+	public void PrintAccounts(int client) {
 		// Iteration vars
 		Account a;
 		char accountKey[MAX_AUTHID_LENGTH];
@@ -493,7 +549,7 @@ methodmap Bank < StringMap  {
 			if (strcmp(accountKey, "config") == 0) continue;
 			bool accountFound = this.GetArray(accountKey, a, sizeof(Account));
 
-			PrintToServer(
+			PrintToConsole(client,
 				accountFound ?
 					a.ToRow() :
 					"[RTU][Bank] No account found for Account Key: %s", accountKey);
@@ -506,14 +562,10 @@ methodmap Bank < StringMap  {
 
 		bool accountFound = this.Fetch(client, a);
 
-		ReplyToCommand(client,
+		PrintToConsole(client,
 			accountFound ?
 				a.ToString() :
 		 		"[RTU][Bank] No account found for Client: %d", client);
-		// PrintToServer(
-		// 	accountFound ?
-		// 		a.ToString() :
-		//  		"[RTU][Bank] No account found for Client: %d", client);
 	}
 
 	// Debug
@@ -540,8 +592,8 @@ methodmap Bank < StringMap  {
 	}
 
 	// Optional team filter
-	public bool ValidTeam(int client, TFTeam team) {
-		return team == TFTeam_Unassigned || this.ClientTeam(client) == team;
+	public bool ValidTeam(TFTeam team, TFTeam filter) {
+		return filter == TFTeam_Unassigned || team == filter;
 	}
 
 	public TFTeam ClientTeam(int client) {

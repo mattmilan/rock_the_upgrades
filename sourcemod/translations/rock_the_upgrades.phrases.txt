@@ -1,15 +1,18 @@
 "Phrases" {
-	"RTU Not Enabled" {
-		"en"			"Upgrades are not currently enabled!"
-	}
+	// Voting
 
-	"RTU Already Enabled" {
-		"en"			"Upgrades are already enabled!"
+	"RTU Not Allowed" {
+		"en"			"Too soon to vote on upgrades!"
 	}
 
 	"RTU Already Voted" {
  		"#format"		"{1:d},{2:d}"
 	 	"en"			"You have already voted to enable upgrades. ({1} votes, {2} required)"
+	}
+
+	"RTU Requested" {
+		"#format"		"{1:s},{2:d},{3:d}"
+		"en"			"{1} wants to enable upgrades. ({2} votes, {3} required)"
 	}
 
 	"RTU AutoEnable" {
@@ -20,6 +23,18 @@
 		"en"			"Vote has succeeded - enabling upgrades!"
 	}
 
+	// Upgrade System Status
+
+	"RTU Not Enabled" {
+		"en"			"Upgrades are not currently enabled!"
+	}
+
+	"RTU Already Enabled" {
+		"en"			"Upgrades are already enabled!"
+	}
+
+	// Upgrade System Change (not triggered by vote)
+
 	"RTU Disabled" {
 		"en"			"Upgrades have been disabled!"
 	}
@@ -28,12 +43,36 @@
 		"en"			"Upgrades and currency have been reset!"
 	}
 
-	"RTU Not Allowed" {
-		"en"			"Too soon to vote on upgrades!"
+	// Currency Transfer via rtu_pay command
+
+	"RTU Pay Usage" {
+		"en"			"Usage: /rtu_pay <amount> <player>\n       Partial names will work - even just one letter!\n       Use quotes for names with spaces\n       Admins may also use red|blu|all"
 	}
 
-	"RTU Requested" {
-		"#format"		"{1:s},{2:d},{3:d}"
-		"en"			"{1} wants to enable upgrades. ({2} votes, {3} required)"
+	"RTU Pay Amount Invalid" {
+		"#format"		"{1:d}"
+		"en"			"{crimson}Invalid amount: {1} (must be between 100 and 30,000){default}"
+	}
+
+	"RTU Pay Insufficient Funds" {
+		"en"			"You cannot afford that payment amount."
+	}
+
+	"RTU Pay No Target" {
+		"en"			"You must specify a target to pay."
+	}
+
+	"RTU Pay Missing Target" {
+		"en"			"Who are you trying to pay?"
+	}
+
+	"RTU Pay Invalid Target" {
+		"#format"		"{1:s}"
+		"en"			"Unable to pay {1} - no such player or team!"
+	}
+
+	"RTU Pay Success" {
+		"#format"		"{1:s},{2:d},{3:s}"
+		"en"			"{1} gave {2} credits to {3}"
 	}
 }
