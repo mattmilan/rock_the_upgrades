@@ -1,40 +1,52 @@
 # Rock The Upgrades
-A SourceMod plugin for Team Fortress 2, which enables MvM upgrades on any map - no mapscript.nut or map editing required.
 
-The plugin provides a chat command (!rtu) which triggers a vote, similar to the "Rock the Vote" SourceMod plugin (from which this plugin borrows, quite heavily). Several admin commands are also provided to manage state.
+A SourceMod plugin for Team Fortress 2 which enables MvM upgrades on any map - no mapscript.nut or map editing required.
 
-If the vote is successful, the upgrades system is activated, and a `func_upgradestation` is wrapped around every `func_regenerate`.
+## Overview
 
-This allows players to open and close the upgrades menu by simply approaching any resupply locker.
+Players can chat `/rtu` to add a vote, similar to "Rock the Vote". Once enough votes are received
 
-Currency may be gained via a number of configurable strategies, including global multipliers to easily adjust difficulty without needing to manage each strategy individually.
+- the `m_nForceUpgrades` netprop is activated, enabling the upgrades system and currency HUD
+- a `func_upgradestation` is added if not already present
+- the touch events of each resupply locker (`func_regenerate`) are hooked to open/close the upgrades menu
+- human clients are given 250 starting currency
 
-## Usage
-Install sourcemod, then move this plugin and its dependencies into the following folders
+After a vote passes, players can chat `/rtu` to open the upgrades menu.
+
+Currency is earned individually from kills, assists, and destructions.
+
+Currency is earned for the whole team from point and flag captures.
+
+See the [Wiki](https://github.com/mattmilan/rock_the_upgrades/wiki) for more details.
+
+## Setup
+
+Copy the required files into the following locations
+
 ```cmd
-../sourcemod/gamedata/tf2.attributes.txt
-../sourcemod/plugins/rock_the_upgrades-x86.smx
-../sourcemod/plugins/tf2attributes.smx
-../sourcemod/translations/rock_the_upgrades.phrases.txt
+../tf/addons/sourcemod/translations/rock_the_upgrades.phrases.txt
+../tf/addons/sourcemod/plugins/rock_the_upgrades.smx
+../tf/addons/sourcemod/plugins/sm_vscript_comms.smx
+../tf/scripts/vscripts/sm-vscript-comms.nut
+../tf/scripts/vscripts/sm_vscript_comms/custom_scripts.nut
 ```
 
-then connect to your server and chat `!rtu` to see the plugin in action
+then connect to your server and chat `/rtu` to see the plugin in action.
 
 ## Acknowledgements
 
-This plugin was inspired by the community map [Freaky Fair](https://steamcommunity.com/sharedfiles/filedetails/?id=3326591381), which quickly became a favorite among the community, and left them hungry for more.
+Inspired by the community map [Freaky Fair](https://steamcommunity.com/sharedfiles/filedetails/?id=3326591381)
 
-This plugin is not a 1:1 port of the Freaky Fair functionality - which comes with a great deal of polish and flair, but rather a stripped down version focused on the upgrade system, with a strong desire to avoid any map editing and all the other issues associated with that approach.
+Designed for Engineer Fortress [Bangerz.tf](Bangerz.tf)
 
-Originally designed for the [Bangerz.tf](Bangerz.tf) Engineer Fortress game mode, it includes enough configurability to be a good fit for any game mode.
+Depends on [SMVscriptComms](https://github.com/Bradasparky/sm_vscript_comms).
 
-None of this would be possible without [SourceMod](https://github.com/alliedmodders/sourcemod) and [AlliedModders](https://forums.alliedmods.net/).
-
-Reverting upgrades was greatly facilitated by [TF2Attributes](https://github.com/FlaminSarge/tf2attributes).
-
-Finally a big thanks to Dynamilk of the  [Bangerz.tf](Bangerz.tf) community for his support and collaboration during development.
+Created in collaboration with Dynamilk, owner and operator of [Bangerz.tf](Bangerz.tf)
 
 ## Future Plans
-x64 Compatibility (most likely pending Sourcemod 1.13 stable)
 
-TBD
+Custom Upgrades
+
+Documentation
+
+Code cleanup
