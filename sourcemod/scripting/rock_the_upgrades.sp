@@ -189,7 +189,7 @@ public void OnMapStart() {
 	FindAndAddUpgradesFilesToDownloadsTable();
 	ApplyCustomUpgradesFile();
  	PlayerCount = 0;
-	WaitingForPlayers = true;
+	WaitingForPlayers = false;
 	RevengeTracker.Clear(); // from currency_controller
  	Votes.Clear();
 	combatTimer.Start();
@@ -212,6 +212,7 @@ public void OnClientPostAdminCheck(int client) {
 	PlayerCount++;
 	bank.Connect(client);
 	bank.Sync(client);
+	AttemptAutoEnable();
 }
 
 // NOTE: We count votes because the vote might pass if a player disconnects without voting
@@ -235,10 +236,9 @@ public void TF2_OnWaitingForPlayersStart() {
     WaitingForPlayers = true;
 }
 
-// Re-allow voting once waiting is complete, and trigger optional Auto-Enable
+// Re-allow voting once waiting is complete
 public void TF2_OnWaitingForPlayersEnd() {
     WaitingForPlayers = false;
-	AttemptAutoEnable();
 }
 
 /**
