@@ -345,10 +345,10 @@ methodmap Bank < StringMap  {
 
 
 		// Determine which target to use
-		bool admin = client == 0 || GetUserAdmin(client);
+		bool admin = client == 0 || CheckCommandAccess(client, "", ADMFLAG_GENERIC, true);
 		bool depositAll = admin && targetTeam != TFTeam_Spectator;
 
-		if (!depositAll) targetClient = FindTarget(client, target, true);
+		if (!depositAll) targetClient = FindTarget(client, target, true, false);
 
 		// Edge case - non-admins cannot pay themselves
 		if (!admin && targetClient == client) return false;

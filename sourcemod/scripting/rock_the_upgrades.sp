@@ -450,7 +450,8 @@ Action Command_RTUPay(int client, int args) {
 	char targetName[MAX_NAME_LENGTH];
 
 	// Admins bypass the funds check because they grant currency rather than pay it
-	bool checkFunds = !GetUserAdmin(client);
+	// bool checkFunds = view_as<int>(GetUserAdmin(client)) > 0;
+	bool checkFunds = !CheckCommandAccess(client, "", ADMFLAG_GENERIC, true);
 
 	// Attempt to parse args a bit early to keep the conditional clean
 	float amount = GetCmdArgFloat(1);
