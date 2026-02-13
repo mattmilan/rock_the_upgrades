@@ -32,7 +32,7 @@
  * Voting portion inspired by AlliedModder's RTV SourceMod Plugin
  * https://github.com/alliedmodders/sourcemod/blob/master/plugins/rockthevote.sp
  *
- * Depends on https://github.com/FlaminSarge/tf2attributes to revert upgrades
+ * Depends on https://github.com/Bradasparky/sm_vscript_comms to revert upgrades
  *
  * Originally developed for the Bangerz.tf community to be used in their version
  * of the `Engineer Fortress` game mode (https://bangerz.tf), which I highly
@@ -89,9 +89,6 @@
 #include <sdkhooks>
 #include <tf2>
 #include <tf2_stocks>
-
-// Facilitates the removal of upgrades during resets
-// #include <tf2attributes>
 
 #include <morecolors>
 
