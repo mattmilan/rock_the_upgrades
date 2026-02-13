@@ -452,7 +452,7 @@ Action Command_RTUPay(int client, int args) {
 	// Perform several validations. If they pass, attempt and report the result
 	if (args == 0) {
 		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Pay Usage");
-	} else if (amount < 100.0 || amount > 30000.0) {
+	} else if (amount < 100.0 || amount > 99999.0) {
 		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Pay Amount Invalid", RoundToCeil(amount));
 	} else if (checkFunds && amount > bank.Earned(client)) {
 		CReplyToCommand(client, "%s %t", RTU_BRAND, "RTU Pay Insufficient Funds");
