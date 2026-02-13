@@ -219,6 +219,13 @@ public void OnClientAuthorized(int client) {
 	bank.Connect(client);
 }
 
+// prevent ResolveDelta from miscalculating currency for reconnecting players
+public void OnClientPostAdminCheck(int client) {
+	if (IsFakeClient(client)) return;
+
+	bank.Sync(client);
+}
+
 // NOTE: We count votes because the vote might pass if a player disconnects without voting
 public void OnClientDisconnect(int client) {
 	if (IsFakeClient(client)) return;
