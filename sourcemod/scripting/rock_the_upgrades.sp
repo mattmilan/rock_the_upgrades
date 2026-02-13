@@ -205,24 +205,12 @@ public void OnMapEnd() {
 	combatTimer.Stop();
 }
 
-// Simply increment voting threshold. Continued in `OnClientAuthorized`
-public void OnClientConnected(int client) {
-	if (IsFakeClient(client)) return;
-
-	PlayerCount++;
-}
-
-// Bank requires a unique trusted identifier which is now available
-public void OnClientAuthorized(int client) {
-	if (IsFakeClient(client)) return;
-
-	bank.Connect(client);
-}
-
 // prevent ResolveDelta from miscalculating currency for reconnecting players
 public void OnClientPostAdminCheck(int client) {
 	if (IsFakeClient(client)) return;
 
+	PlayerCount++;
+	bank.Connect(client);
 	bank.Sync(client);
 }
 
@@ -610,7 +598,7 @@ void HandleLateLoad() {
 	// Ensures the voting threshold is reasonable
 	for (int i=1; i<=MaxClients; i++) {
 		if (IsClientConnected(i)) {
-			OnClientConnected(i);
+			OnClientPostAdminCheck(i);
 		}
 	}
 }
