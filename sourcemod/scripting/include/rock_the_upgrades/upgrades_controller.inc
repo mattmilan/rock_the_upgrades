@@ -3,7 +3,10 @@
  * TODO: description
  */
 
-#include <tf2attributes>
+#include "sdktools"
+#include "tf2"
+#include "sdkhooks"
+#include <sm_vscript_comms>
 
 // Enum representing the various states the upgrades system can be in
 // Useful for gating initialization and functionality
@@ -39,6 +42,8 @@ static char pathsForDisableSFX[][] = {
 	"mvm/mvm_player_died.wav"
 };
 
+VScriptHandle g_GrantOrRemoveAllUpgrades;
+
 /*
  * MethodMap UpgradesController
  *
@@ -60,6 +65,14 @@ methodmap UpgradesController < StringMap {
 	// Establish values which persist between maps
 	public bool OnPluginStarted() {
 		this.InitSFXArrays();
+
+		StartPrepVScriptCall(VScriptScope_EntityInstance);
+		PrepVScriptCall_SetFunction("GrantOrRemoveAllUpgrades");
+		PrepVScriptCall_SetReturnType(VScriptReturnType_Void);
+		PrepVScriptCall_AddParameter(VScriptParamType_Entity);
+		PrepVScriptCall_AddParameter(VScriptParamType_Bool);
+		PrepVScriptCall_AddParameter(VScriptParamType_Bool);
+		g_GrantOrRemoveAllUpgrades = EndPrepVScriptCall();
 
 		return true;
 	}
@@ -186,19 +199,11 @@ methodmap UpgradesController < StringMap {
 	public void ResetPlayer(int client) {
 		if (!IsClientInGame(client) || IsFakeClient(client)) return;
 
-		// Clear player upgrades
-		TF2Attrib_RemoveAll(client);
-
-		// Number of weapon slots to check
-		int weaponSlots = 5;
-
-		// Clear weapon upgrades
-		for (int j = 0; j < weaponSlots; j++) {
-			int weapon = GetPlayerWeaponSlot(client, j);
-			if (weapon == -1) { continue; }
-
-			TF2Attrib_RemoveAll(weapon);
-		}
+		StartVScriptFunc(g_GrantOrRemoveAllUpgrades);
+		VScriptFunc_PushEntity(client);
+		VScriptFunc_PushBool(true); // true for remove upgrades
+		VScriptFunc_PushBool(false); // false for no refund
+		FireVScriptFunc_Void();
 
 		// Remove lingering effects of upgrades
 		TF2_RegeneratePlayer(client);
