@@ -582,7 +582,7 @@ methodmap Bank < StringMap  {
 			char[] accountKey = new char[size];
 			keys.GetKey(i, accountKey, size);
 			if (strcmp(accountKey, "config") == 0) continue;
-			PrintToConsole(client, "[RTU][Bank] Index: %d, Account Key: %s", i, accountKey);
+			PrintToServer("[RTU][Bank] Index: %d, Account Key: %s", i, accountKey);
 		}
 	}
 
