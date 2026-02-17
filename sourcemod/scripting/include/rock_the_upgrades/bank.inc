@@ -208,6 +208,10 @@ methodmap Bank < StringMap  {
 	// Disconnected accounts have their spending reset (retains earned currency)
 	public void SetConnection(int client, bool connected) {
 		Account a; if (!this.Fetch(client, a)) return;
+
+		// Reconnecting clients will have a different client id
+		if (!a.connected && connected) a.client = client;
+
 		a.connected = connected;
 
 		// Reset spending but retain earned currency on disconnect
@@ -578,7 +582,7 @@ methodmap Bank < StringMap  {
 			char[] accountKey = new char[size];
 			keys.GetKey(i, accountKey, size);
 			if (strcmp(accountKey, "config") == 0) continue;
-			PrintToServer("[RTU][Bank] Index: %d, Account Key: %s", i, accountKey);
+			PrintToConsole(client, "[RTU][Bank] Index: %d, Account Key: %s", i, accountKey);
 		}
 	}
 
