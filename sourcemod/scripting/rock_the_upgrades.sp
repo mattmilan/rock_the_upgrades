@@ -120,7 +120,7 @@ public Plugin myinfo = {
 	name = "Rock The Upgrades (aka Freaky Fair Anywhere)",
 	author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
-	version = SOURCEMOD_VERSION,
+	version = "1.0.1",
 	url = "https://github.com/mattmilan/rock_the_upgrades"
 };
 
