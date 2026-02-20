@@ -360,6 +360,7 @@ methodmap UpgradesController < StringMap {
 // For more info search the TF2 source code for `m_bWasInZone`
 void OnRTUUpgradeTriggerStartTouchPost(int trigger, int client) {
 	if (!ValidClient(client)) return;
+	else if (TF2_GetPlayerClass(client) > TFClass_Engineer) return;
 
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	CreateTimer(0.1, Timer_ShowRTUUpgradesMenu, client);
@@ -367,6 +368,7 @@ void OnRTUUpgradeTriggerStartTouchPost(int trigger, int client) {
 
 void OnRTUUpgradeTriggerEndTouchPost(int trigger, int client) {
 	if (!ValidClient(client)) return;
+	else if (TF2_GetPlayerClass(client) > TFClass_Engineer) return;
 
 	SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 }

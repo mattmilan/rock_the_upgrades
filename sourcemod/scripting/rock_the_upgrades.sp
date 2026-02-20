@@ -359,6 +359,7 @@ Action Event_PostInventoryApplication(Event event, const char[] name, bool dontB
 Action Command_RTU(int client, int args) {
 	if (client <= 0) PrintToServer("[RTU] Command `rtu` is client-only.");
 	else if (!upgrades.Enabled) Vote(client);
+	else if (TF2_GetPlayerClass(client) > TFClass_Engineer) CPrintToChat(client, "%s %t", RTU_BRAND, "Civilian not yet supported");
 	else {
 		char accountKey[MAX_AUTHID_LENGTH];
 		bank.GetAccountKey(client, accountKey);
