@@ -89,7 +89,7 @@ methodmap Bank < StringMap  {
 		Account account;
 
 		// initialize ID information (starting currency set on activation)
-		account.Init(client, accountKey);
+		account.Init(client, accountKey, this.StartingCurrency(account.currentTeam));
 
 		// save changes
 		this.SetArray(accountKey, account, sizeof(Account));
@@ -106,9 +106,6 @@ methodmap Bank < StringMap  {
 		// apply updates
 		account.currentClass = classType;
 		account.currentTeam = team;
-
-		// grant one-time starting currency
-		if (account.earned < 0.001) account.earned = this.StartingCurrency(account.currentTeam);
 
 		// save changes
 		this.SetArray(account.accountKey, account, sizeof(Account));

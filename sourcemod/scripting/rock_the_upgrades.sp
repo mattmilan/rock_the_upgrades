@@ -210,7 +210,10 @@ public void OnClientPostAdminCheck(int client) {
 	if (IsFakeClient(client)) return;
 
 	PlayerCount++;
+	// BUG: Team is not yet known but required to grant proper StartingCurrency
+	// FIX: Recalculate currency (account.earned) during team select event but NOT during spawn event, if possible
 	bank.Connect(client);
+
 	bank.Sync(client);
 	AttemptAutoEnable();
 }
