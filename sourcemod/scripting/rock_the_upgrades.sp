@@ -215,7 +215,6 @@ public void OnClientPostAdminCheck(int client) {
 	bank.Connect(client);
 
 	bank.Sync(client);
-	AttemptAutoEnable();
 }
 
 // NOTE: We count votes because the vote might pass if a player disconnects without voting
@@ -241,6 +240,7 @@ public void TF2_OnWaitingForPlayersStart() {
 
 // Re-allow voting once waiting is complete
 public void TF2_OnWaitingForPlayersEnd() {
+	AttemptAutoEnable();
     WaitingForPlayers = false;
 }
 
@@ -252,7 +252,7 @@ public void TF2_OnWaitingForPlayersEnd() {
 void InitConvars() {
 	g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
 	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
-	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "0.8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
+	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
 	g_Cvar_CombatTimeout = CreateConVar("rtu_combat_timeout", "3.0", "Duration in seconds after taking or dealing damage that a player is considered 'in combat' and cannot open the upgrade menu. [3.0, 0..]", 0, true, 0.0, false);
 }
 
