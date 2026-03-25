@@ -88,7 +88,6 @@ methodmap UpgradesController < StringMap {
 	public bool OnMapStarted() {
 		// Clear guards
 		this.Remove("ready");
-		this.Remove("hooked");
 		this.Remove("built");
 
 		// Fire guarded initializers
@@ -213,16 +212,18 @@ methodmap UpgradesController < StringMap {
 	}
 
 	// Approaching/leaving resupply lockers will show/hide the upgrades menu
+	// For maps that have no resupply lockers, players can use the chat command
+	// For players on a controller, it's possible to do multi-button binds to invoke the chat command
+	// NOTE: The event `teamplay_round_start`, when `full_reset==true`, will clear hooks on map entities!
 	// TODO: Solve for maps that have no `func_regenerate` entities
 	public void HookUpgradesMenuToResupply() {
-		if (this.Hooked) return;
-
-		this.SetValue("hooked", 1);
-
 		int resupplyEntity = -1;
 
 		while ((resupplyEntity = FindEntityByClassname(resupplyEntity, "func_regenerate")) != -1) {
+			SDKUnhook(resupplyEntity, SDKHook_StartTouch, OnRTUUpgradeTriggerStartTouchPost);
 			SDKHook(resupplyEntity, SDKHook_StartTouch, OnRTUUpgradeTriggerStartTouchPost);
+
+			SDKUnhook(resupplyEntity, SDKHook_EndTouch, OnRTUUpgradeTriggerEndTouchPost);
 			SDKHook(resupplyEntity, SDKHook_EndTouch, OnRTUUpgradeTriggerEndTouchPost);
 		}
 	}
@@ -271,18 +272,6 @@ methodmap UpgradesController < StringMap {
 	property bool Ready {
 		public get() { return this.ContainsKey("ready"); }
 		// private set during `OnMapStarted`
-	}
-
-	// When true, prints additional messages to server console
-
-	// Whether resupply lockers have been hooked to show the upgrades menu
-	property bool Hooked {
-		public get() {
-			int hooked;
-			this.GetValue("hooked", hooked);
-			return hooked == 1;
-		}
-		// private set during `HookUpgradesMenuToResupply`
 	}
 
 	property bool Built {

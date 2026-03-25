@@ -328,12 +328,7 @@ Action Timer_RevertClient(Handle timer, any client) {
 
 // Reset on round start unless configured otherwise. This may be firing too often.
 Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
-	if (g_Cvar_MultiStageReset.IntValue == 1) {
-		bank.ResetAccounts();
-		upgrades.Reset(); // also attempts to force-close upgrade menus
-		pocket.Unlock();
-		CPrintToChatAll("%s %t", RTU_BRAND, "RTU Reset");
-	}
+	if (upgrades.Enabled) RoundStarted(event.GetBool("full_reset"));
 
 	return Plugin_Continue;
 }
@@ -596,6 +591,20 @@ void AttemptAutoEnable(){
 	CPrintToChatAll("%s %t", RTU_BRAND, "RTU AutoEnable");
 	bank.Sync();
 	upgrades.Enable();
+}
+
+void RoundStarted(bool fullReset) {
+	// a full_reset indicates map entities have been "cleaned" - need to rehook
+	if (fullReset) upgrades.HookUpgradesMenuToResupply();
+
+	// bail if reset disabled
+	if (g_Cvar_MultiStageReset.IntValue != 1) return;
+
+	// Reset when advancing the stage in multi-stage maps like cp_dustbowl
+	CPrintToChatAll("%s %t", RTU_BRAND, "RTU Reset");
+	bank.ResetAccounts(); // Reset currency
+	upgrades.Reset(); 	  // Reset upgrades
+	pocket.Unlock();      // Enable upgrades menu via command
 }
 
 void HandleLateLoad() {
