@@ -447,7 +447,7 @@ Action Command_RTU_Swap(int client, int args) {
 	// char[] message = "RTU Switched to Score-based currency gain system.";
 	// if (usingScore) message = "RTU Switched to K/D/A-based currency gain system.";
 
-	char message[];// = "RTU Switched to Score-based currency gain system.";
+	char message[64];// = "RTU Switched to Score-based currency gain system.";
 	if (usingScore) message = "RTU Switched to K/D/A-based currency gain system.";
 	else message = "RTU Switched to Score-based currency gain system.";
 
