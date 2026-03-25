@@ -120,7 +120,7 @@ public Plugin myinfo = {
 	name = "Rock The Upgrades (aka Freaky Fair Anywhere)",
 	author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
-	version = "1.0.4",
+	version = "1.0.5",
 	url = "https://github.com/mattmilan/rock_the_upgrades"
 };
 
@@ -268,6 +268,7 @@ void RegisterCommands() {
 	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
 	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
 	RegConsoleCmd("rtu_pay", Command_RTUPay, "Send currency to other players.");
+	RegConsoleCmd("rtu_v", Command_RTU_Version, "Print the plugin version.");
 
 	RegAdminCmd("rtu_rl", Command_RTU_Rl, ADMFLAG_GENERIC, "Reloads the upgrades file. Clients will need to delete their local file and rejoin to see changes.");
 	RegAdminCmd("rtu_swap", Command_RTU_Swap, ADMFLAG_GENERIC, "Switch between k/d/a and score-based currency gain systems.");
@@ -454,6 +455,11 @@ Action Command_RTU_Swap(int client, int args) {
 	g_Cvar_CurrencyUseScore.SetBool(!usingScore);
 	CPrintToChatAll("%s %s", RTU_BRAND, message);
 
+	return Plugin_Handled;
+}
+
+Action Command_RTU_Version(int client, int args) {
+	CPrintToChat(client, "%s Version %s", RTU_BRAND, plugin.version);
 	return Plugin_Handled;
 }
 
