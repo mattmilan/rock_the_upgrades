@@ -116,11 +116,13 @@
  * ===========================================================================
  */
 
+// Duplicate constant. Because accessing this info is stupidly inconvinient
+char g_RTU_version[] = "1.0.5";
 public Plugin myinfo = {
 	name = "Rock The Upgrades (aka Freaky Fair Anywhere)",
 	author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
-	version = "1.0.5",
+	version = g_RTU_version,
 	url = "https://github.com/mattmilan/rock_the_upgrades"
 };
 
@@ -445,12 +447,10 @@ Action Command_RTUReset(int client, int args) {
 Action Command_RTU_Swap(int client, int args) {
 	bool usingScore = g_Cvar_CurrencyUseScore.IntValue == 1;
 
-	// char[] message = "RTU Switched to Score-based currency gain system.";
-	// if (usingScore) message = "RTU Switched to K/D/A-based currency gain system.";
+	char message[64];
 
-	char message[64];// = "RTU Switched to Score-based currency gain system.";
-	if (usingScore) message = "RTU Switched to K/D/A-based currency gain system.";
-	else message = "RTU Switched to Score-based currency gain system.";
+	if (usingScore) strcopy(message, sizeof(message), "RTU Switched to K/D/A-based currency gain system.");
+	else strcopy(message, sizeof(message), "RTU Switched to Score-based currency gain system.");
 
 	g_Cvar_CurrencyUseScore.SetBool(!usingScore);
 	CPrintToChatAll("%s %s", RTU_BRAND, message);
@@ -459,7 +459,7 @@ Action Command_RTU_Swap(int client, int args) {
 }
 
 Action Command_RTU_Version(int client, int args) {
-	CPrintToChat(client, "%s Version %s", RTU_BRAND, plugin.version);
+	CPrintToChat(client, "%s Version %s", RTU_BRAND, g_RTU_version);
 	return Plugin_Handled;
 }
 
