@@ -452,7 +452,7 @@ Action Command_RTU_Swap(int client, int args) {
 	else message = "RTU Switched to Score-based currency gain system.";
 
 	g_Cvar_CurrencyUseScore.SetBool(!usingScore);
-	CPrintToChatAll("%s %t", RTU_BRAND, message);
+	CPrintToChatAll("%s %s", RTU_BRAND, message);
 
 	return Plugin_Handled;
 }
