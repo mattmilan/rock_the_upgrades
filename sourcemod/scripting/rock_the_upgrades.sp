@@ -268,6 +268,8 @@ void RegisterCommands() {
 	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
 	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
 	RegConsoleCmd("rtu_pay", Command_RTUPay, "Send currency to other players.");
+
+	RegAdminCmd("rtu_rl", Command_RTU_Rl, ADMFLAG_GENERIC, "Reloads the upgrades file. Clients will need to delete their local file and rejoin to see changes.");
 	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
 	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
 	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");
@@ -374,6 +376,17 @@ Action Command_RTUAccount(int client, int args) {
 		CPrintToChat(client, "%s Account Details printed to console.", RTU_BRAND);
 	}
 	else PrintToServer("[RTU] Command `rtu_account` can only be used by clients.");
+
+	return Plugin_Handled;
+}
+
+Action Command_RTU_Rl(int client, int args) {
+	FindAndAddUpgradesFilesToDownloadsTable();
+
+	if (ApplyCustomUpgradesFile())
+		CPrintToChat(client, "%s Custom Upgrades reloaded from file. Remember to delete your `download/scripts/items/bangerz_upgrades.txt` first!", RTU_BRAND);
+	else
+		CPrintToChat(client, "%s Failed to reload Custom Upgrades from file. Check if the file exists and is properly formatted.", RTU_BRAND);
 
 	return Plugin_Handled;
 }
