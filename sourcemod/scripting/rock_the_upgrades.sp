@@ -270,6 +270,7 @@ void RegisterCommands() {
 	RegConsoleCmd("rtu_pay", Command_RTUPay, "Send currency to other players.");
 
 	RegAdminCmd("rtu_rl", Command_RTU_Rl, ADMFLAG_GENERIC, "Reloads the upgrades file. Clients will need to delete their local file and rejoin to see changes.");
+	RegAdminCmd("rtu_swap", Command_RTU_Swap, ADMFLAG_GENERIC, "Switch between k/d/a and score-based currency gain systems.");
 	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
 	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
 	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");
@@ -436,6 +437,22 @@ Action Command_RTUReset(int client, int args) {
 		upgrades.Reset();
 		CPrintToChatAll("%s %t", RTU_BRAND, "RTU Reset");
 	}
+
+	return Plugin_Handled;
+}
+
+Action Command_RTU_Swap(int client, int args) {
+	bool usingScore = g_Cvar_CurrencyUseScore.IntValue == 1;
+
+	// char[] message = "RTU Switched to Score-based currency gain system.";
+	// if (usingScore) message = "RTU Switched to K/D/A-based currency gain system.";
+
+	char message[];// = "RTU Switched to Score-based currency gain system.";
+	if (usingScore) message = "RTU Switched to K/D/A-based currency gain system.";
+	else message = "RTU Switched to Score-based currency gain system.";
+
+	g_Cvar_CurrencyUseScore.SetBool(!usingScore);
+	CPrintToChatAll("%s %t", RTU_BRAND, message);
 
 	return Plugin_Handled;
 }
