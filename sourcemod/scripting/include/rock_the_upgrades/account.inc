@@ -56,9 +56,10 @@ enum struct Account {
 	// Track team to support team-based currency when clients are disconnected
 	TFTeam currentTeam;
 
-	void Init(int client, char accountKey[MAX_AUTHID_LENGTH]) {
+	void Init(int client, char accountKey[MAX_AUTHID_LENGTH], float earned) {
 		strcopy(this.accountKey, sizeof(this.accountKey), accountKey);
 		this.client = client;
+		this.earned = earned;
 		this.connected = true;
 	}
 

@@ -75,4 +75,10 @@
 		"#format"		"{1:s},{2:d},{3:s}"
 		"en"			"{1} gave {2} credits to {3}"
 	}
+
+	// Misc
+
+	"Civilian not yet supported" {
+		"en"			"Sorry, civilians are not supported in the upgrade system."
+	}
 }

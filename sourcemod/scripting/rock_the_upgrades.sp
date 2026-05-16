@@ -116,11 +116,13 @@
  * ===========================================================================
  */
 
+// Duplicate constant. Because accessing this info is stupidly inconvinient
+char g_RTU_version[] = "1.0.5";
 public Plugin myinfo = {
 	name = "Rock The Upgrades (aka Freaky Fair Anywhere)",
 	author = "MurderousIntent",
 	description = "Provides a chat command to trigger a vote (similar to Rock the Vote) which, when passed, enables MvM upgrades for the current map.",
-	version = SOURCEMOD_VERSION,
+	version = g_RTU_version,
 	url = "https://github.com/mattmilan/rock_the_upgrades"
 };
 
@@ -210,9 +212,11 @@ public void OnClientPostAdminCheck(int client) {
 	if (IsFakeClient(client)) return;
 
 	PlayerCount++;
+	// BUG: Team is not yet known but required to grant proper StartingCurrency
+	// FIX: Recalculate currency (account.earned) during team select event but NOT during spawn event, if possible
 	bank.Connect(client);
+
 	bank.Sync(client);
-	AttemptAutoEnable();
 }
 
 // NOTE: We count votes because the vote might pass if a player disconnects without voting
@@ -238,6 +242,7 @@ public void TF2_OnWaitingForPlayersStart() {
 
 // Re-allow voting once waiting is complete
 public void TF2_OnWaitingForPlayersEnd() {
+	AttemptAutoEnable();
     WaitingForPlayers = false;
 }
 
@@ -249,7 +254,7 @@ public void TF2_OnWaitingForPlayersEnd() {
 void InitConvars() {
 	g_Cvar_VoteThreshold = CreateConVar("rtu_voting_threshold", "0.55", "Percentage of players needed to enable upgrades. A value of zero will start the round with upgrades enabled. [0.55, 0..1]", 0, true, 0.0, true, 1.0);
 	g_Cvar_MultiStageReset = CreateConVar("rtu_multistage_reset", "1", "Enable or disable resetting currency and upgrades on multi-stage map restarts/extensions [1, 0,1]", 0, true, 0.0, true, 1.0);
-	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "0.8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
+	g_Cvar_AutoEnableThreshold = CreateConVar("rtu_auto_enable_threshold", "8", "Number of players required at end of waiting stage to auto-enable upgrades. A value of 0 disables auto-enable. [16, 0..]", 16, true, 0.0, false);
 	g_Cvar_CombatTimeout = CreateConVar("rtu_combat_timeout", "3.0", "Duration in seconds after taking or dealing damage that a player is considered 'in combat' and cannot open the upgrade menu. [3.0, 0..]", 0, true, 0.0, false);
 }
 
@@ -265,6 +270,10 @@ void RegisterCommands() {
 	RegConsoleCmd("rtu", Command_RTU, "Starts a vote to enable the upgrade system for the current map.");
 	RegConsoleCmd("rtu_account", Command_RTUAccount, "Debug: Show full account data for the caller");
 	RegConsoleCmd("rtu_pay", Command_RTUPay, "Send currency to other players.");
+	RegConsoleCmd("rtu_v", Command_RTU_Version, "Print the plugin version.");
+
+	RegAdminCmd("rtu_rl", Command_RTU_Rl, ADMFLAG_GENERIC, "Reloads the upgrades file. Clients will need to delete their local file and rejoin to see changes.");
+	RegAdminCmd("rtu_swap", Command_RTU_Swap, ADMFLAG_GENERIC, "Switch between k/d/a and score-based currency gain systems.");
 	RegAdminCmd("rtu_banks", Command_RTUBanks, ADMFLAG_GENERIC, "Debug: Show full bank data");
 	RegAdminCmd("rtu_enable", Command_RTUEnable, ADMFLAG_GENERIC, "Immediately enable the upgrade system without waiting for a vote.");
 	RegAdminCmd("rtu_disable", Command_RTUDisable, ADMFLAG_GENERIC, "Immediately disable the upgrade system and revert all currency and upgrades");
@@ -325,12 +334,7 @@ Action Timer_RevertClient(Handle timer, any client) {
 
 // Reset on round start unless configured otherwise. This may be firing too often.
 Action Event_TeamplayRoundStart(Event event, const char[] name, bool dontBroadcast) {
-	if (g_Cvar_MultiStageReset.IntValue == 1) {
-		bank.ResetAccounts();
-		upgrades.Reset(); // also attempts to force-close upgrade menus
-		pocket.Unlock();
-		CPrintToChatAll("%s %t", RTU_BRAND, "RTU Reset");
-	}
+	if (upgrades.Enabled) RoundStarted(event.GetBool("full_reset"));
 
 	return Plugin_Continue;
 }
@@ -359,6 +363,7 @@ Action Event_PostInventoryApplication(Event event, const char[] name, bool dontB
 Action Command_RTU(int client, int args) {
 	if (client <= 0) PrintToServer("[RTU] Command `rtu` is client-only.");
 	else if (!upgrades.Enabled) Vote(client);
+	else if (TF2_GetPlayerClass(client) > TFClass_Engineer) CPrintToChat(client, "%s %t", RTU_BRAND, "Civilian not yet supported");
 	else {
 		char accountKey[MAX_AUTHID_LENGTH];
 		bank.GetAccountKey(client, accountKey);
@@ -375,6 +380,17 @@ Action Command_RTUAccount(int client, int args) {
 		CPrintToChat(client, "%s Account Details printed to console.", RTU_BRAND);
 	}
 	else PrintToServer("[RTU] Command `rtu_account` can only be used by clients.");
+
+	return Plugin_Handled;
+}
+
+Action Command_RTU_Rl(int client, int args) {
+	FindAndAddUpgradesFilesToDownloadsTable();
+
+	if (ApplyCustomUpgradesFile())
+		CPrintToChat(client, "%s Custom Upgrades reloaded from file. Remember to delete your `download/scripts/items/bangerz_upgrades.txt` first!", RTU_BRAND);
+	else
+		CPrintToChat(client, "%s Failed to reload Custom Upgrades from file. Check if the file exists and is properly formatted.", RTU_BRAND);
 
 	return Plugin_Handled;
 }
@@ -425,6 +441,25 @@ Action Command_RTUReset(int client, int args) {
 		CPrintToChatAll("%s %t", RTU_BRAND, "RTU Reset");
 	}
 
+	return Plugin_Handled;
+}
+
+Action Command_RTU_Swap(int client, int args) {
+	bool usingScore = g_Cvar_CurrencyUseScore.IntValue == 1;
+
+	char message[64];
+
+	if (usingScore) strcopy(message, sizeof(message), "RTU Switched to K/D/A-based currency gain system.");
+	else strcopy(message, sizeof(message), "RTU Switched to Score-based currency gain system.");
+
+	g_Cvar_CurrencyUseScore.SetBool(!usingScore);
+	CPrintToChatAll("%s %s", RTU_BRAND, message);
+
+	return Plugin_Handled;
+}
+
+Action Command_RTU_Version(int client, int args) {
+	CPrintToChat(client, "%s Version %s", RTU_BRAND, g_RTU_version);
 	return Plugin_Handled;
 }
 
@@ -592,6 +627,20 @@ void AttemptAutoEnable(){
 	CPrintToChatAll("%s %t", RTU_BRAND, "RTU AutoEnable");
 	bank.Sync();
 	upgrades.Enable();
+}
+
+void RoundStarted(bool fullReset) {
+	// a full_reset indicates map entities have been "cleaned" - need to rehook
+	if (fullReset) upgrades.HookUpgradesMenuToResupply();
+
+	// bail if reset disabled
+	if (g_Cvar_MultiStageReset.IntValue != 1) return;
+
+	// Reset when advancing the stage in multi-stage maps like cp_dustbowl
+	CPrintToChatAll("%s %t", RTU_BRAND, "RTU Reset");
+	bank.ResetAccounts(); // Reset currency
+	upgrades.Reset(); 	  // Reset upgrades
+	pocket.Unlock();      // Enable upgrades menu via command
 }
 
 void HandleLateLoad() {

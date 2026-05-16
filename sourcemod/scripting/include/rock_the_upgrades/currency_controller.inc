@@ -14,6 +14,7 @@ ConVar g_Cvar_RevengeMultiplier;
 ConVar g_Cvar_CurrencyOnCapturePoint;
 ConVar g_Cvar_CurrencyOnCaptureFlag;
 ConVar g_Cvar_CurrencyOnDomination;
+ConVar g_Cvar_CurrencyUseScore;
 
 // TODO: implement
 // ConVar g_Cvar_CurrencyOverTime;
@@ -38,15 +39,23 @@ void CloseCurrencyController() {
 }
 
 void HookCurrencyEvents() {
-	// Currency gain
+	// Score-based system
+	HookEvent("player_score_changed", Event_PlayerScoreChanged, EventHookMode_Post);
+
+	// Event-based system
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
 	HookEvent("object_destroyed", Event_ObjectDestroyed, EventHookMode_Post);
+	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
+
+	// Team events (always active)
 	HookEvent("teamplay_point_captured", Event_TeamplayPointCaptured, EventHookMode_Post);
 	HookEvent("teamplay_flag_event", Event_TeamplayFlagEvent, EventHookMode_Post);
-	HookEvent("player_domination", Event_PlayerDomination, EventHookMode_Post);
 }
 
 void InitCurrencyConVars() {
+	// Currency System
+	g_Cvar_CurrencyUseScore = CreateConVar("rtu_currency_use_score", "0", "Whether to use score-based currency gains instead of event-based gains [0 or 1]", 0, true, 0.0, true, 1.0);
+
 	// Currency gain
 	g_Cvar_CurrencyOnKillMin = CreateConVar("rtu_currency_on_kill_min", "10.0", "Minimum amount of currency to give to players on robot kill [10, 0..]", 0, true, 0.0, false);
 	g_Cvar_CurrencyOnKillMax = CreateConVar("rtu_currency_on_kill_max", "30.0", "Maximum amount of currency to give to players on robot kill [30, 0..]", 0, true, 0.0, false);
@@ -60,6 +69,22 @@ void InitCurrencyConVars() {
     g_Cvar_CurrencyDeathTax = CreateConVar("rtu_currency_death_tax", "0.0", "Percentage of currency to deduct on player death. 1 means all unspent currency is lost [0, 0..1]", 0, true, 0.0, true, 1.0);
 }
 
+bool UseScore() {
+	return g_Cvar_CurrencyUseScore.BoolValue;
+}
+
+Action Event_PlayerScoreChanged(Event event, const char[] name, bool dontBroadcast) {
+	if (!UseScore()) { return Plugin_Continue; }
+
+	int player = event.GetInt("player");
+	int scoreChange = event.GetInt("delta");
+
+	// Only trigger on score increases
+	if (scoreChange > 0) bank.Deposit(CurrencyOnKill() * scoreChange, player);
+
+	return Plugin_Continue;
+}
+
 // Kills earn currency
 Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int killer = GetClientOfUserId(event.GetInt("attacker"));
@@ -70,6 +95,7 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	// We need to reset it or the menu will immediately open on player spawn
 	SetEntProp(victim, Prop_Send, "m_bInUpgradeZone", 0);
 
+	if (UseScore()) { return Plugin_Continue; }
 	if (Suicide(killer, victim)) { return Plugin_Continue; }
 
 	bool revenge = RevengeKill(killer, victim)
@@ -86,8 +112,10 @@ Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 
 // Destroying an engineer building rewards increasing currency per building upgrade
 Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast) {
-	// Ignore sappers completely
+	// Ignore sappers completely. TODO: config with convar for non-EF modes?
 	if (event.GetInt("objecttype") == view_as<int>(TFObject_Sapper)) return Plugin_Continue;
+
+	if (UseScore()) { return Plugin_Continue; }
 
 	// Play SFX when destroying an unfinished building
 	// if (event.GetBool("was_building")) { ObjectDenied(event); }
@@ -130,15 +158,16 @@ Action Event_TeamplayFlagEvent(Event event, const char[] name, bool dontBroadcas
 
 // Dominations earn bonus currency (disabled by default) and provide data for revenge kills
 Action Event_PlayerDomination(Event event, const char[] name, bool dontBroadcast) {
-	// Handle domination
+	// Track revenge, then handle domination reward if enabled
     int dominator = GetClientOfUserId(event.GetInt("dominator"));
 	int dominated = GetClientOfUserId(event.GetInt("dominated"));
-	bank.Deposit(CurrencyOnDomination(), dominator);
 
-	// Track revenge
 	char dominatorName[MAX_NAME_LENGTH]; GetClientName(dominator, dominatorName, sizeof(dominatorName));
 	char dominatedName[MAX_NAME_LENGTH]; GetClientName(dominated, dominatedName, sizeof(dominatedName));
+
 	RevengeTracker.SetString(dominatedName, dominatorName);
+
+	if (!UseScore()) bank.Deposit(CurrencyOnDomination(), dominator);
 
 	return Plugin_Continue;
 }

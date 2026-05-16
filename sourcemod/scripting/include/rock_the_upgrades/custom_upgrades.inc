@@ -25,21 +25,25 @@ static char filePath[PLATFORM_MAX_PATH];
 static bool fileFound = false;
 
 // `OnMapStart`
-void FindAndAddUpgradesFilesToDownloadsTable() {
+bool FindAndAddUpgradesFilesToDownloadsTable() {
 	DetermineUpgradesFilePath();
-
 	if (fileFound) AddFileToDownloadsTable(filePath);
+
+	return fileFound;
 }
 
 // `OnMapStart`
-void ApplyCustomUpgradesFile() {
-	if (!fileFound) return;
+bool ApplyCustomUpgradesFile() {
+	if (!fileFound) {
+		PrintToConsoleAll("[RTU] No custom upgrades file found, cannot apply.");
+		return false;
+	}
 
 	int entity = FindEntityByClassname(-1, "tf_gamerules");
 
 	SetVariantString(filePath);
 
-	AcceptEntityInput(entity, "SetCustomUpgradesFile");
+	return AcceptEntityInput(entity, "SetCustomUpgradesFile");
 }
 
 // Map-specific, global override, or default
