@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> Development paused indefinitely. The wiki and readme are outdated and missing much information. 
+
 # Rock The Upgrades
 
 A SourceMod plugin for Team Fortress 2 which enables MvM upgrades on any map - no mapscript.nut or map editing required.
