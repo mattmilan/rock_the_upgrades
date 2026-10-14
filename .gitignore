@@ -8,3 +8,4 @@
 !README.md
 
 *.code-workspace
+!**/sourcemod/gamedata/*
