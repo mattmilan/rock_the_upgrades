@@ -2,7 +2,7 @@
 !*/
 !**/sourcemod/scripting/include/rock_the_upgrades/*
 !**/scripts/items/*
-!rock_the_upgrades.*
+!rock_the_upgrades.sp
 !clean_kill.sp
 !LICENSE
 !README.md
