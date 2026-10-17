@@ -43,6 +43,16 @@ static char pathsForDisableSFX[][] = {
 };
 
 VScriptHandle g_GrantOrRemoveAllUpgrades;
+VScriptHandle g_RemoveAttribute;
+
+static char canteenAttributes[][] = {
+	"critboost",
+	"ubercharge",
+	"recall",
+	"refill_ammo",
+	"building instant upgrade",
+	"powerup charges"
+};
 
 /*
  * MethodMap UpgradesController
@@ -53,7 +63,7 @@ VScriptHandle g_GrantOrRemoveAllUpgrades;
 methodmap UpgradesController < StringMap {
 
 	// Minimal constructor - yet another glorified StringMap
-	public UpgradesController(bool debug = false) {
+	public UpgradesController() {
 		StringMap upgradesController = new StringMap();
 
 		// TODO: convar?
@@ -66,6 +76,7 @@ methodmap UpgradesController < StringMap {
 	public bool OnPluginStarted() {
 		this.InitSFXArrays();
 
+		// step 1 grantorremoveallupgrades
 		StartPrepVScriptCall(VScriptScope_EntityInstance);
 		PrepVScriptCall_SetFunction("GrantOrRemoveAllUpgrades");
 		PrepVScriptCall_SetReturnType(VScriptReturnType_Void);
@@ -73,6 +84,14 @@ methodmap UpgradesController < StringMap {
 		PrepVScriptCall_AddParameter(VScriptParamType_Bool);
 		PrepVScriptCall_AddParameter(VScriptParamType_Bool);
 		g_GrantOrRemoveAllUpgrades = EndPrepVScriptCall();
+
+		// step 2 removeattribute
+		StartPrepVScriptCall(VScriptScope_EntityInstance);
+		PrepVScriptCall_SetFunction("RemoveAttribute");
+		PrepVScriptCall_SetReturnType(VScriptReturnType_Void);
+		PrepVScriptCall_AddParameter(VScriptParamType_Entity);
+		PrepVScriptCall_AddParameter(VScriptParamType_String);
+		g_RemoveAttribute = EndPrepVScriptCall();
 
 		return true;
 	}
@@ -191,10 +210,24 @@ methodmap UpgradesController < StringMap {
 
 		for (int i = 1; i <= MaxClients; i++) this.ResetPlayer(i);
 
+		// Reset canteens
+		int canteen = -1;
+		while ((canteen = FindEntityByClassname(canteen, "tf_powerup_bottle")) != -1) {
+			SetEntProp(canteen, Prop_Send, "m_bActive", 0);
+			SetEntProp(canteen, Prop_Send, "m_usNumCharges", 0);
+
+			for (int j = 0; j < sizeof(canteenAttributes); j++) {
+				StartVScriptFunc(g_RemoveAttribute);
+				VScriptFunc_PushEntity(canteen);
+				VScriptFunc_PushString(canteenAttributes[j]);
+				FireVScriptFunc_Void();
+			}
+		}
+
 		return true;
 	}
 
-	// Resets upgrades only. Currency reset via bank
+	// Resets upgrades only. Currency reset via bank. canteens reset in `reset`
 	public void ResetPlayer(int client) {
 		if (!IsClientInGame(client) || IsFakeClient(client)) return;
 
@@ -207,7 +240,8 @@ methodmap UpgradesController < StringMap {
 		// Remove lingering effects of upgrades
 		TF2_RegeneratePlayer(client);
 
-		// Close the upgrades menu if open
+		// Close the upgrades menu if open. Disabled due to bug with menu not reopening correctly.
+		// TODO: test if the menu closes on it's own anyway and then get rid of this
 		// SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
 	}
 
@@ -295,7 +329,6 @@ methodmap UpgradesController < StringMap {
 			}
 
 			this.GetValue("state", state)
-			char stateName[MAX_UPGRADES_STATE_NAME];
 			return state;
 		}
 
