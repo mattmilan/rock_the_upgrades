@@ -3,7 +3,9 @@
 !**/sourcemod/scripting/include/rock_the_upgrades/*
 !**/scripts/items/*
 !rock_the_upgrades.*
+!clean_kill.sp
 !LICENSE
 !README.md
 
 *.code-workspace
+!**/sourcemod/gamedata/*

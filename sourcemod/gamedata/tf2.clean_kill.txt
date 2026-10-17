@@ -1,0 +1,55 @@
+"Games"
+{
+    "tf"
+    {
+        "Signatures"
+        {
+            "CTFPlayer::CreateRagdollEntity"
+            {
+                "library"   "server"
+                "linux64"   "@_ZN9CTFPlayer19CreateRagdollEntityEbbbbbbbbib"
+            }
+            "CTFPlayer::DropAmmoPack"
+            {
+                "library"   "server"
+                "linux64"   "@_ZN9CTFPlayer12DropAmmoPackERK15CTakeDamageInfobb"
+            }
+            "CTFPlayer::DropCurrentWeapon"
+            {
+                "library"   "server"
+                "linux64"   "@_ZN9CTFPlayer17DropCurrentWeaponEv"
+            }
+        }
+
+        "MemPatches"
+        {
+            "CTFPlayer::CreateRagdollEntity::SkipRagdollCreation"
+            {
+                "signature" "CTFPlayer::CreateRagdollEntity"
+                "linux64"
+                {
+                    "offset"    "0"
+                    "patch"     "C3"
+                }
+            }
+            "CTFPlayer::DropAmmoPack::SkipAmmoDrop"
+            {
+                "signature" "CTFPlayer::DropAmmoPack"
+                "linux64"
+                {
+                    "offset"    "0"
+                    "patch"     "C3"
+                }
+            }
+            "CTFPlayer::DropCurrentWeapon::SkipWeaponDrop"
+            {
+                "signature" "CTFPlayer::DropCurrentWeapon"
+                "linux64"
+                {
+                    "offset"    "0"
+                    "patch"     "C3"
+                }
+            }
+        }
+    }
+}
